@@ -198,7 +198,7 @@ def inference_request(img: numpy.array, api_url: str):
     print("Sending image to API...")
 
     try:
-        response = requests.post(api_url, files=files)
+        #response = requests.post(api_url, files=files)
         response = requests.post(
             url=URL,
             auth=HTTPBasicAuth(AUTH_USERNAME, ACCESS_KEY),
