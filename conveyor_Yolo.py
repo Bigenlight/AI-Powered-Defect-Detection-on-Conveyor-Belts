@@ -15,7 +15,7 @@ from requests.auth import HTTPBasicAuth
 import json
 
 # Initialize serial communication with Arduino
-ser = serial.Serial("/dev/ttyACM0", 9600)
+ser = serial.Serial("/dev/ttyACM1", 9600)
 
 # Configuration for YOLO API
 INPUT_FOLDER = "/home/theo/Downloads/Val_0.1 2024-12-04 105822/"
