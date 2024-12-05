@@ -212,7 +212,7 @@ while True:
         if data == b"0":
             img = get_img()
             # Optional cropping (uncomment and adjust if needed)
-            crop_info = {"x": 880, "y": 110, "width": 520, "height": 520}
+            crop_info = {"x": 870, "y": 110, "width": 520, "height": 520}
             if crop_info is not None:
                 img = crop_img(img, crop_info)
 
