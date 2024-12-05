@@ -15,11 +15,24 @@ import random
 from collections import Counter
 import datetime
 
+from requests.auth import HTTPBasicAuth
+import json
+
 # Initialize serial communication with Arduino
 ser = serial.Serial("/dev/ttyACM0", 9600)
 
+INPUT_FOLDER = "/home/theo/Downloads/Val_0.1 2024-12-04 105822/"
+OUTPUT_FOLDER = "/home/theo/Downloads/result_YoloV6/"
+URL = "https://suite-endpoint-api-apne2.superb-ai.com/endpoints/3b4fe4fc-2b91-492a-989c-d737546d61ed/inference"
+ACCESS_KEY = "ezeJWt9iFMaP7HGvwYgds6Za1Sb35fwHaPZF89mi"
+AUTH_USERNAME = "kdt2024_1-27"
+START_INDEX = 0
+END_INDEX = 300
+IMAGE_EXTENSION = ".jpg"
+headers = {"Content-Type": "image/jpg"}
 # API endpoint (replace with your actual YOLO endpoint URL)
-api_url = "YOUR_YOLO_API_ENDPOINT_URL"
+api_url = "https://suite-endpoint-api-apne2.superb-ai.com/endpoints/3b4fe4fc-2b91-492a-989c-d737546d61ed/inference"
+
 
 # Define a list of distinct colors (BGR format)
 COLOR_LIST = [
@@ -186,6 +199,12 @@ def inference_request(img: numpy.array, api_url: str):
 
     try:
         response = requests.post(api_url, files=files)
+        response = requests.post(
+            url=URL,
+            auth=HTTPBasicAuth(AUTH_USERNAME, ACCESS_KEY),
+            headers=headers,
+            data=files,  # Correct variable name
+        )
         if response.status_code == 200:
             print("Image sent successfully")
             return response.json()
