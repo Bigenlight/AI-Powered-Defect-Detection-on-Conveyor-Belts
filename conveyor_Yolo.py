@@ -1,11 +1,7 @@
-# pip install opencv-python numpy requests pyserial
-
-
-
 import time
 import serial
 import requests
-import numpy
+import numpy as np
 from io import BytesIO
 from pprint import pprint
 
@@ -21,7 +17,6 @@ import json
 # Initialize serial communication with Arduino
 ser = serial.Serial("/dev/ttyACM0", 9600)
 
-
 # Configuration for YOLO API
 INPUT_FOLDER = "/home/theo/Downloads/Val_0.1 2024-12-04 105822/"
 OUTPUT_FOLDER = "/home/theo/Downloads/result_YoloV6/"
@@ -32,7 +27,6 @@ END_INDEX = 300
 IMAGE_EXTENSION = ".jpg"
 headers = {"Content-Type": "image/jpg"}
 api_url = "https://suite-endpoint-api-apne2.superb-ai.com/endpoints/3b4fe4fc-2b91-492a-989c-d737546d61ed/inference"
-
 
 # Define a list of distinct colors (BGR format)
 COLOR_LIST = [
@@ -212,56 +206,63 @@ def inference_request(img: np.array, api_url: str):
         return None
 
 while True:
-    data = ser.read()
-    print(f"Received data: {data}")
-    if data == b"0":
-        img = get_img()
-        # Optional cropping (uncomment and adjust if needed)
-        crop_info = {"x": 900, "y": 120, "width": 500, "height": 500}
-        if crop_info is not None:
-            img = crop_img(img, crop_info)
+    try:
+        data = ser.read()
+        print(f"Received data: {data}")
+        if data == b"0":
+            img = get_img()
+            # Optional cropping (uncomment and adjust if needed)
+            crop_info = {"x": 900, "y": 120, "width": 500, "height": 500}
+            if crop_info is not None:
+                img = crop_img(img, crop_info)
 
-        # Save the image into 'original' folder
-        original_folder = 'original'
-        if not os.path.exists(original_folder):
-            os.makedirs(original_folder)
+            # Save the image into 'original' folder
+            original_folder = 'original'
+            if not os.path.exists(original_folder):
+                os.makedirs(original_folder)
 
-        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-        original_image_path = os.path.join(original_folder, f"{timestamp}.jpg")
-        cv2.imwrite(original_image_path, img)
-        print(f"Saved original image to {original_image_path}")
+            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            original_image_path = os.path.join(original_folder, f"{timestamp}.jpg")
+            cv2.imwrite(original_image_path, img)
+            print(f"Saved original image to {original_image_path}")
 
-        result = inference_request(img, api_url)
+            result = inference_request(img, api_url)
 
-        if result is not None:
-            # Extract detected objects
-            objects = result.get('objects', [])
-            if not objects:
-                print("No objects detected.")
+            if result is not None:
+                # Extract detected objects
+                objects = result.get('objects', [])
+                if not objects:
+                    print("No objects detected.")
+                else:
+                    print(f"Number of objects detected: {len(objects)}")
+
+                    # Count the occurrences of each label
+                    label_counts = Counter(obj.get('class', 'N/A') for obj in objects)
+
+                    # Draw bounding boxes and labels
+                    annotated_image = draw_bounding_boxes(img.copy(), objects, color_map)
+
+                    # Draw label counts in the top-left corner
+                    draw_label_counts(annotated_image, label_counts, color_map)
+
+                    # Save the annotated image into 'Yolo' folder
+                    yolo_folder = 'Yolo'
+                    if not os.path.exists(yolo_folder):
+                        os.makedirs(yolo_folder)
+
+                    annotated_image_path = os.path.join(yolo_folder, f"{timestamp}_annotated.jpg")
+                    cv2.imwrite(annotated_image_path, annotated_image)
+                    print(f"Annotated image saved to {annotated_image_path}")
             else:
-                print(f"Number of objects detected: {len(objects)}")
+                print("Failed to get inference result.")
 
-                # Count the occurrences of each label
-                label_counts = Counter(obj.get('class', 'N/A') for obj in objects)
-
-                # Draw bounding boxes and labels
-                annotated_image = draw_bounding_boxes(img.copy(), objects, color_map)
-
-                # Draw label counts in the top-left corner
-                draw_label_counts(annotated_image, label_counts, color_map)
-
-                # Save the annotated image into 'Yolo' folder
-                yolo_folder = 'Yolo'
-                if not os.path.exists(yolo_folder):
-                    os.makedirs(yolo_folder)
-
-                annotated_image_path = os.path.join(yolo_folder, f"{timestamp}_annotated.jpg")
-                cv2.imwrite(annotated_image_path, annotated_image)
-                print(f"Annotated image saved to {annotated_image_path}")
+            # Send '1' back to Arduino to resume conveyor belt
+            ser.write(b"1")
         else:
-            print("Failed to get inference result.")
-
-        # Send '1' back to Arduino to resume conveyor belt
-        ser.write(b"1")
-    else:
-        pass
+            pass
+    except KeyboardInterrupt:
+        print("Interrupted by user. Exiting...")
+        break
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        continue
