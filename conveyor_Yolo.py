@@ -26,7 +26,7 @@ START_INDEX = 0
 END_INDEX = 300
 IMAGE_EXTENSION = ".jpg"
 headers = {"Content-Type": "image/jpg"}
-api_url = "https://suite-endpoint-api-apne2.superb-ai.com/endpoints/3b4fe4fc-2b91-492a-989c-d737546d61ed/inference"
+api_url = "https://suite-endpoint-api-apne2.superb-ai.com/endpoints/8f81f503-b7c6-4220-8ad3-9e54ff2729c7/inference"
 
 # Define a list of distinct colors (BGR format)
 COLOR_LIST = [
