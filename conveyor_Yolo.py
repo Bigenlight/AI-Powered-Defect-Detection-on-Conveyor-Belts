@@ -21,16 +21,16 @@ import json
 # Initialize serial communication with Arduino
 ser = serial.Serial("/dev/ttyACM0", 9600)
 
+
+# Configuration for YOLO API
 INPUT_FOLDER = "/home/theo/Downloads/Val_0.1 2024-12-04 105822/"
 OUTPUT_FOLDER = "/home/theo/Downloads/result_YoloV6/"
-URL = "https://suite-endpoint-api-apne2.superb-ai.com/endpoints/3b4fe4fc-2b91-492a-989c-d737546d61ed/inference"
 ACCESS_KEY = "ezeJWt9iFMaP7HGvwYgds6Za1Sb35fwHaPZF89mi"
 AUTH_USERNAME = "kdt2024_1-27"
 START_INDEX = 0
 END_INDEX = 300
 IMAGE_EXTENSION = ".jpg"
 headers = {"Content-Type": "image/jpg"}
-# API endpoint (replace with your actual YOLO endpoint URL)
 api_url = "https://suite-endpoint-api-apne2.superb-ai.com/endpoints/3b4fe4fc-2b91-492a-989c-d737546d61ed/inference"
 
 
@@ -180,7 +180,7 @@ def crop_img(img, size_dict):
     img = img[y : y + h, x : x + w]
     return img
 
-def inference_request(img: numpy.array, api_url: str):
+def inference_request(img: np.array, api_url: str):
     """Send image to inference API endpoint and get the result.
 
     Args:
@@ -189,27 +189,23 @@ def inference_request(img: numpy.array, api_url: str):
     """
     _, img_encoded = cv2.imencode(".jpg", img)
 
-    # Prepare the image for sending
-    img_bytes = BytesIO(img_encoded.tobytes())
+    # Convert to bytes
+    img_bytes = img_encoded.tobytes()
 
     # Send the image to the API
-    files = {"file": ("image.jpg", img_bytes, "image/jpeg")}
-
-    print("Sending image to API...")
-
     try:
-        #response = requests.post(api_url, files=files)
         response = requests.post(
-            url=URL,
+            url=api_url,
             auth=HTTPBasicAuth(AUTH_USERNAME, ACCESS_KEY),
             headers=headers,
-            data=files,  # Correct variable name
+            data=img_bytes,  # Send raw binary data
         )
         if response.status_code == 200:
             print("Image sent successfully")
             return response.json()
         else:
             print(f"Failed to send image. Status code: {response.status_code}")
+            print(f"Response content: {response.text}")  # Added for debugging
             return None
     except requests.exceptions.RequestException as e:
         print(f"Error sending request: {e}")
@@ -221,9 +217,9 @@ while True:
     if data == b"0":
         img = get_img()
         # Optional cropping (uncomment and adjust if needed)
-        # crop_info = {"x": 200, "y": 100, "width": 300, "height": 300}
-        # if crop_info is not None:
-        #     img = crop_img(img, crop_info)
+        crop_info = {"x": 900, "y": 120, "width": 500, "height": 500}
+        if crop_info is not None:
+            img = crop_img(img, crop_info)
 
         # Save the image into 'original' folder
         original_folder = 'original'
