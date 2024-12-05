@@ -2,7 +2,7 @@ import serial
 import cv2
 import os
 import datetime
-
+import time
 # Initialize serial communication with Arduino
 ser = serial.Serial("/dev/ttyACM0", 9600)
 
@@ -65,6 +65,7 @@ while True:
         data = ser.read()
         print(f"Received data: {data}")
         if data == b"0":
+            time.sleep(0.1)
             img = get_img()
             if img is None:
                 print("No image captured. Skipping...")
@@ -83,6 +84,7 @@ while True:
             save_image(img, original_folder, timestamp)
 
             # Send '1' back to Arduino to resume conveyor belt
+            time.sleep(0.1)
             ser.write(b"1")
             print("Sent '1' to Arduino to resume conveyor belt.")
         else:
