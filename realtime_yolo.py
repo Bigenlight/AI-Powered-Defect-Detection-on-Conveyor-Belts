@@ -16,8 +16,8 @@ import json
 # ==============================
 # Parameters
 # ==============================
-CAPTURE_DELAY_FRAMES = 10  # 'data == b"0"' 수신 후 캡처까지 대기할 프레임 수
-FREEZE_FRAMES = 30          # YOLO 결과를 표시할 프레임 수
+CAPTURE_DELAY_FRAMES = 10  # 'data == b"0"' 신호 후 캡처까지 대기할 프레임 수
+FREEZE_FRAMES = 30         # YOLO 결과를 표시할 프레임 수
 
 # Initialize serial communication with Arduino
 ser = serial.Serial("/dev/ttyACM0", 9600)
@@ -25,9 +25,6 @@ ser = serial.Serial("/dev/ttyACM0", 9600)
 # Configuration for YOLO API
 ACCESS_KEY = "ezeJWt9iFMaP7HGvwYgds6Za1Sb35fwHaPZF89mi"
 AUTH_USERNAME = "kdt2024_1-27"
-START_INDEX = 0
-END_INDEX = 300
-IMAGE_EXTENSION = ".jpg"
 headers = {"Content-Type": "image/jpg"}
 api_url = "https://suite-endpoint-api-apne2.superb-ai.com/endpoints/8f81f503-b7c6-4220-8ad3-9e54ff2729c7/inference"
 
@@ -151,13 +148,14 @@ def draw_label_counts(image, label_counts, color_map):
         if y > image.shape[0]:
             break  # Stop drawing if we reach the bottom of the image
 
+    return image  # Added return for clarity
+
 def crop_img(img, size_dict):
     x = size_dict["x"]
     y = size_dict["y"]
     w = size_dict["width"]
     h = size_dict["height"]
-    img = img[y : y + h, x : x + w]
-    return img
+    return img[y : y + h, x : x + w]
 
 def inference_request(img: np.array, api_url: str):
     """Send image to inference API endpoint and get the result."""
@@ -168,8 +166,8 @@ def inference_request(img: np.array, api_url: str):
         response = requests.post(
             url=api_url,
             auth=HTTPBasicAuth(AUTH_USERNAME, ACCESS_KEY),
-            headers=headers,
-            data=img_bytes,  # Send raw binary data
+            headers={"Content-Type": "image/jpg"},
+            data=img_bytes  # Send raw binary data
         )
         if response.status_code == 200:
             print("Image sent successfully")
@@ -254,26 +252,26 @@ try:
                 result = inference_request(frame, api_url)
                 if result is not None:
                     objects = result.get('objects', [])
-                    if not objects:
-                        print("No objects detected.")
-                        annotated_image = frame.copy()
-                    else:
+                    if objects:
                         print(f"Number of objects detected: {len(objects)}")
                         label_counts = Counter(obj.get('class', 'N/A') for obj in objects)
-
                         annotated_image = draw_bounding_boxes(frame.copy(), objects, color_map)
-                        draw_label_counts(annotated_image, label_counts, color_map)
-
-                        # YOLO 폴더에 결과 저장
-                        yolo_folder = 'Yolo'
-                        if not os.path.exists(yolo_folder):
-                            os.makedirs(yolo_folder)
-                        annotated_image_path = os.path.join(yolo_folder, f"{timestamp}_annotated.jpg")
-                        cv2.imwrite(annotated_image_path, annotated_image)
-                        print(f"Annotated image saved to {annotated_image_path}")
+                        annotated_image = draw_label_counts(annotated_image, label_counts, color_map)
+                        print(f"annotated_image shape: {annotated_image.shape}")
+                    else:
+                        print("No objects detected.")
+                        annotated_image = frame.copy()
                 else:
                     print("Failed to get inference result.")
                     annotated_image = frame.copy()
+
+                # YOLO 결과 이미지 저장
+                yolo_folder = 'Yolo'
+                if not os.path.exists(yolo_folder):
+                    os.makedirs(yolo_folder)
+                annotated_image_path = os.path.join(yolo_folder, f"{timestamp}_annotated.jpg")
+                cv2.imwrite(annotated_image_path, annotated_image)
+                print(f"Annotated image saved to {annotated_image_path}")
 
                 # Switch to 'freeze' state
                 state = 'freeze'
@@ -284,6 +282,7 @@ try:
             # Display annotated image for FREEZE_FRAMES
             if annotated_image is not None:
                 cv2.imshow('Live', annotated_image)
+                print("Displaying annotated image.")
             else:
                 print("No annotated image to display.")
 
@@ -298,6 +297,7 @@ try:
 
         # Key input to exit
         if cv2.waitKey(1) & 0xFF == ord('q'):
+            print("Exit key pressed. Exiting...")
             break
 
 except KeyboardInterrupt:
