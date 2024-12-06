@@ -18,8 +18,6 @@ import json
 ser = serial.Serial("/dev/ttyACM1", 9600)
 
 # Configuration for YOLO API
-INPUT_FOLDER = "/home/theo/Downloads/Val_0.1 2024-12-04 105822/"
-OUTPUT_FOLDER = "/home/theo/Downloads/result_YoloV6/"
 ACCESS_KEY = "ezeJWt9iFMaP7HGvwYgds6Za1Sb35fwHaPZF89mi"
 AUTH_USERNAME = "kdt2024_1-27"
 START_INDEX = 0
@@ -212,7 +210,7 @@ while True:
         if data == b"0":
             img = get_img()
             # Optional cropping (uncomment and adjust if needed)
-            crop_info = {"x": 870, "y": 110, "width": 520, "height": 520}
+            crop_info = {"x": 870, "y": 110, "width": 600, "height": 530}
             if crop_info is not None:
                 img = crop_img(img, crop_info)
 
