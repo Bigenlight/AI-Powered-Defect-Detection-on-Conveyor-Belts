@@ -20,7 +20,7 @@ import json
 FREEZE_FRAMES = 30  # YOLO 결과를 몇 프레임 동안 정지할지 설정
 
 # Initialize serial communication with Arduino
-ser = serial.Serial("/dev/ttyACM1", 9600)
+ser = serial.Serial("/dev/ttyACM0", 9600)
 
 # Configuration for YOLO API
 ACCESS_KEY = "ezeJWt9iFMaP7HGvwYgds6Za1Sb35fwHaPZF89mi"
