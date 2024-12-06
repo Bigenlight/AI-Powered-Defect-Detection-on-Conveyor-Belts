@@ -73,7 +73,7 @@ while True:
                 continue
 
             # Optional cropping (uncomment and adjust if needed)
-            crop_info = {"x": 870, "y": 110, "width": 530, "height": 530}
+            crop_info = {"x": 870, "y": 110, "width": 600, "height": 530}
             if crop_info:
                 img = crop_img(img, crop_info)
                 print("Image cropped.")
