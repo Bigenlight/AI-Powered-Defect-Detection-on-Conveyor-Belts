@@ -20,7 +20,7 @@ CAPTURE_DELAY_FRAMES = 10  # 'data == b"0"' 신호 후 캡처까지 대기할 �
 FREEZE_FRAMES = 30         # YOLO 결과를 표시할 프레임 수
 
 # Initialize serial communication with Arduino
-ser = serial.Serial("/dev/ttyACM0", 9600)
+ser = serial.Serial("/dev/ttyACM0", 9600, timeout=1)
 
 # Configuration for YOLO API
 ACCESS_KEY = "ezeJWt9iFMaP7HGvwYgds6Za1Sb35fwHaPZF89mi"
@@ -170,6 +170,8 @@ def inference_request(img: np.array, api_url: str):
         )
         if response.status_code == 200:
             print("Image sent successfully")
+            print("Response JSON:")
+            pprint(response.json())  # Print the response for debugging
             return response.json()
         else:
             print(f"Failed to send image. Status code: {response.status_code}")
@@ -250,6 +252,9 @@ try:
                 # YOLO inference
                 result = inference_request(frame, api_url)
                 if result is not None:
+                    print("YOLO Inference Result:")
+                    pprint(result)  # Print the result for debugging
+
                     objects = result.get('objects', [])
                     if objects:
                         print(f"Number of objects detected: {len(objects)}")
