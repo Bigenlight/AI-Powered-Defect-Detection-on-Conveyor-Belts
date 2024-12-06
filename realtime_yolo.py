@@ -148,7 +148,7 @@ def draw_label_counts(image, label_counts, color_map):
         if y > image.shape[0]:
             break  # Stop drawing if we reach the bottom of the image
 
-    return image  # Added return for clarity
+    return image  # Ensure the modified image is returned
 
 def crop_img(img, size_dict):
     x = size_dict["x"]
@@ -161,12 +161,11 @@ def inference_request(img: np.array, api_url: str):
     """Send image to inference API endpoint and get the result."""
     _, img_encoded = cv2.imencode(".jpg", img)
     img_bytes = img_encoded.tobytes()
-
     try:
         response = requests.post(
             url=api_url,
             auth=HTTPBasicAuth(AUTH_USERNAME, ACCESS_KEY),
-            headers={"Content-Type": "image/jpg"},
+            headers=headers,
             data=img_bytes  # Send raw binary data
         )
         if response.status_code == 200:
@@ -281,7 +280,15 @@ try:
         elif state == 'freeze':
             # Display annotated image for FREEZE_FRAMES
             if annotated_image is not None:
-                cv2.imshow('Live', annotated_image)
+                # Optional: Resize image if it's too large
+                display_image = annotated_image.copy()
+                max_width = 800
+                max_height = 600
+                height, width = display_image.shape[:2]
+                if width > max_width or height > max_height:
+                    scaling_factor = min(max_width / width, max_height / height)
+                    display_image = cv2.resize(display_image, None, fx=scaling_factor, fy=scaling_factor, interpolation=cv2.INTER_AREA)
+                cv2.imshow('Live', display_image)
                 print("Displaying annotated image.")
             else:
                 print("No annotated image to display.")
