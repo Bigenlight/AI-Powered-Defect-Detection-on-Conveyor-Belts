@@ -4,7 +4,6 @@ import requests
 import numpy as np
 from io import BytesIO
 from pprint import pprint
-
 import cv2
 import os
 import random
@@ -17,7 +16,8 @@ import json
 # ==============================
 # Parameters
 # ==============================
-FREEZE_FRAMES = 5  # YOLO 결과를 몇 프레임 동안 정지할지 설정
+CAPTURE_DELAY_FRAMES = 3  # 'data == b"0"' 수신 후 캡처까지 대기할 프레임 수
+FREEZE_FRAMES = 10          # YOLO 결과를 표시할 프레임 수
 
 # Initialize serial communication with Arduino
 ser = serial.Serial("/dev/ttyACM0", 9600)
@@ -192,6 +192,9 @@ if not cam.isOpened():
     print("Camera Error")
     exit(-1)
 
+# Initialize state
+state = 'normal'  # other states: 'pending', 'freeze'
+delay_count = 0
 freeze_count = 0
 annotated_image = None
 
@@ -200,22 +203,45 @@ crop_info = {"x": 870, "y": 110, "width": 600, "height": 530}
 
 try:
     while True:
-        # 시리얼 데이터 확인(비차단으로 처리)
-        if ser.in_waiting > 0:
-            data = ser.read()
-            print(f"Received data: {data}")
-            if data == b"0":
-                # data==b"0"일 때 현재 프레임으로 YOLO 처리
-                ret, frame = cam.read()
-                if not ret:
-                    print("Failed to capture image")
-                    continue
+        if state == 'normal':
+            # Read frame for live display
+            ret, live_frame = cam.read()
+            if not ret:
+                print("Failed to read frame from camera")
+                break
 
-                # 필요하면 크롭
-                if crop_info is not None:
-                    frame = crop_img(frame, crop_info)
+            if crop_info is not None:
+                live_frame = crop_img(live_frame, crop_info)
 
-                # 원본 이미지 저장
+            # Check for serial data
+            if ser.in_waiting > 0:
+                data = ser.read()
+                print(f"Received data: {data}")
+                if data == b"0":
+                    # Switch to 'pending' state
+                    state = 'pending'
+                    delay_count = CAPTURE_DELAY_FRAMES
+                    print(f"Switching to 'pending' state for {CAPTURE_DELAY_FRAMES} frames delay before capture.")
+
+            # Display live frame
+            cv2.imshow('Live', live_frame)
+
+        elif state == 'pending':
+            # Read frame and decrement delay_count
+            ret, frame = cam.read()
+            if not ret:
+                print("Failed to read frame from camera")
+                break
+
+            if crop_info is not None:
+                frame = crop_img(frame, crop_info)
+
+            delay_count -= 1
+            print(f"'pending' state: {delay_count} frames remaining before capture.")
+
+            if delay_count <= 0:
+                # Capture frame and perform YOLO inference
+                # Save the frame
                 original_folder = 'original'
                 if not os.path.exists(original_folder):
                     os.makedirs(original_folder)
@@ -230,7 +256,6 @@ try:
                     objects = result.get('objects', [])
                     if not objects:
                         print("No objects detected.")
-                        # 객체 미검출 시에도 정지 프레임 유지 가능. 필요 없으면 건너뛰기
                         annotated_image = frame.copy()
                     else:
                         print(f"Number of objects detected: {len(objects)}")
@@ -248,32 +273,37 @@ try:
                         print(f"Annotated image saved to {annotated_image_path}")
                 else:
                     print("Failed to get inference result.")
-                    annotated_image = frame.copy()  # 실패 시에도 freeze 상태에서는 현재 프레임 그대로 보여줌
+                    annotated_image = frame.copy()
 
-                # YOLO 결과를 FREEZE_FRAMES 동안 정지
+                # Switch to 'freeze' state
+                state = 'freeze'
                 freeze_count = FREEZE_FRAMES
+                print(f"Switching to 'freeze' state for {FREEZE_FRAMES} frames.")
 
-        # 매 루프마다 카메라 프레임 읽기
-        ret, live_frame = cam.read()
-        if not ret:
-            print("Failed to read frame from camera")
-            break
+        elif state == 'freeze':
+            # Display annotated image for FREEZE_FRAMES
+            if annotated_image is not None:
+                cv2.imshow('Live', annotated_image)
+            else:
+                # Fallback to live frame if no annotated image
+                ret, annotated_image = cam.read()
+                if not ret:
+                    print("Failed to read frame from camera during 'freeze' state.")
+                    break
+                if crop_info is not None:
+                    annotated_image = crop_img(annotated_image, crop_info)
+                cv2.imshow('Live', annotated_image)
 
-        if crop_info is not None:
-            live_frame = crop_img(live_frame, crop_info)
-
-        if freeze_count > 0:
-            # YOLO 결과 정지 상태
-            cv2.imshow('Live', annotated_image)
             freeze_count -= 1
-            if freeze_count == 0:
-                # 정지 상태 해제 후, Arduino에 '1' 전송
-                ser.write(b"1")
-        else:
-            # 실시간 프레임 표시
-            cv2.imshow('Live', live_frame)
+            print(f"'freeze' state: {freeze_count} frames remaining.")
 
-        # 키입력 (q: 종료)
+            if freeze_count <= 0:
+                # Switch back to 'normal' state and send '1' to Arduino
+                state = 'normal'
+                ser.write(b"1")
+                print("Switching back to 'normal' state and sent '1' to Arduino.")
+
+        # Key input to exit
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
