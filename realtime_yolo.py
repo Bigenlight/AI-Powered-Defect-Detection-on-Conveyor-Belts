@@ -17,7 +17,7 @@ import json
 # ==============================
 # Parameters
 # ==============================
-FREEZE_FRAMES = 30  # YOLO 결과를 몇 프레임 동안 정지할지 설정
+FREEZE_FRAMES = 5  # YOLO 결과를 몇 프레임 동안 정지할지 설정
 
 # Initialize serial communication with Arduino
 ser = serial.Serial("/dev/ttyACM0", 9600)
