@@ -285,14 +285,7 @@ try:
             if annotated_image is not None:
                 cv2.imshow('Live', annotated_image)
             else:
-                # Fallback to live frame if no annotated image
-                ret, annotated_image = cam.read()
-                if not ret:
-                    print("Failed to read frame from camera during 'freeze' state.")
-                    break
-                if crop_info is not None:
-                    annotated_image = crop_img(annotated_image, crop_info)
-                cv2.imshow('Live', annotated_image)
+                print("No annotated image to display.")
 
             freeze_count -= 1
             print(f"'freeze' state: {freeze_count} frames remaining.")
