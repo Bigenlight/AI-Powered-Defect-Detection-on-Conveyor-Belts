@@ -256,7 +256,7 @@ try:
             print(f"'freeze' state: {freeze_count} frames remaining.")
 
             # freeze 상태 유지 중에도 사용자에게 충분히 이미지가 보이도록 waitKey 시간 증가 (예: 100ms)
-            key = cv2.waitKey(100) & 0xFF
+            key = cv2.waitKey(50) & 0xFF
             if key == ord('q'):
                 print("Exit key pressed. Exiting...")
                 break
