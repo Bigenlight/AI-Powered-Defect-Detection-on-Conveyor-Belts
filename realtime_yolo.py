@@ -28,7 +28,6 @@ AUTH_USERNAME = "kdt2024_1-27"
 headers = {"Content-Type": "image/jpg"}
 api_url = "https://suite-endpoint-api-apne2.superb-ai.com/endpoints/8f81f503-b7c6-4220-8ad3-9e54ff2729c7/inference"
 
-# Define a list of distinct colors (BGR format)
 COLOR_LIST = [
     (255, 0, 0),      # Blue
     (50, 205, 0),     # Green
@@ -39,15 +38,12 @@ COLOR_LIST = [
     (0, 128, 0),      # Dark Green
     (50, 0, 128),     # Navy
     (128, 128, 0),    # Olive
-    # Add more colors as needed
 ]
 
 color_map = {}
 
 def get_color_for_class(cls, color_map):
-    """Assign a unique color to each class."""
     if cls not in color_map:
-        # Assign a color from COLOR_LIST or generate a random one if exhausted
         if len(color_map) < len(COLOR_LIST):
             color_map[cls] = COLOR_LIST[len(color_map)]
         else:
@@ -55,7 +51,6 @@ def get_color_for_class(cls, color_map):
     return color_map[cls]
 
 def draw_bounding_boxes(image, objects, color_map):
-    """Draw bounding boxes and labels on the image with class-specific colors."""
     for obj in objects:
         cls = obj.get('class', 'N/A')
         score = obj.get('score', 0)
@@ -67,88 +62,64 @@ def draw_bounding_boxes(image, objects, color_map):
 
         x1, y1, x2, y2 = box
 
-        # Validate coordinates are integers
         try:
             x1, y1, x2, y2 = map(int, [x1, y1, x2, y2])
         except ValueError:
             print(f"Non-integer box coordinates for object {obj}")
             continue
 
-        # Get color for the current class
         color = get_color_for_class(cls, color_map)
 
-        # Draw rectangle with the class-specific color
         cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
 
-        # Prepare label text
         label = f"{cls}: {score:.2f}"
-
-        # Choose font and get text size
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 0.5
         thickness = 1
         (text_width, text_height), baseline = cv2.getTextSize(label, font, font_scale, thickness)
 
-        # Calculate label background coordinates
         label_bg_x1 = x1
         label_bg_y1 = y1 - text_height - baseline if y1 - text_height - baseline > 0 else y1 + text_height + baseline
         label_bg_x2 = x1 + text_width
         label_bg_y2 = y1
 
-        # Ensure label background is within image boundaries
         label_bg_y1 = max(label_bg_y1, 0)
         label_bg_x2 = min(label_bg_x2, image.shape[1])
 
-        # Draw filled rectangle for label background with the same class color
         cv2.rectangle(image, (label_bg_x1, label_bg_y1), (label_bg_x2, label_bg_y2), color, thickness=cv2.FILLED)
 
-        # Determine text color based on background brightness for readability
         brightness = sum(color)
-        text_color = (0, 0, 0) if brightness > 600 else (255, 255, 255)  # Black or white
+        text_color = (0, 0, 0) if brightness > 600 else (255, 255, 255)
 
-        # Put text on the label background
         cv2.putText(image, label, (label_bg_x1, label_bg_y2 - baseline), font, font_scale, text_color, thickness, cv2.LINE_AA)
 
     return image
 
 def draw_label_counts(image, label_counts, color_map):
-    """Draw label counts in the top-left corner of the image."""
-    # Set starting position
     x = 10
-    y = 20  # Initial y position
-
+    y = 20
     font = cv2.FONT_HERSHEY_SIMPLEX
     font_scale = 0.6
     thickness = 1
-
-    # Calculate line height based on font size
     (text_width, text_height), baseline = cv2.getTextSize('Text', font, font_scale, thickness)
-    line_height = text_height + baseline + 5  # Adjust as needed
+    line_height = text_height + baseline + 5
 
     for label, count in label_counts.items():
         text = f"{label}: {count}"
         color = get_color_for_class(label, color_map)
-
-        # Get text size
         (text_width, text_height), baseline = cv2.getTextSize(text, font, font_scale, thickness)
-
-        # Draw rectangle background for text
         cv2.rectangle(image, (x - 5, y - text_height - 5), (x + text_width + 5, y + 5), color, cv2.FILLED)
 
-        # Determine text color based on background brightness
         brightness = sum(color)
         text_color = (0, 0, 0) if brightness > 600 else (255, 255, 255)
 
-        # Put text
         cv2.putText(image, text, (x, y), font, font_scale, text_color, thickness, cv2.LINE_AA)
 
-        y += line_height  # Move to next line
-
-        # Check if y exceeds image height to prevent drawing outside the image
+        y += line_height
         if y > image.shape[0]:
-            break  # Stop drawing if we reach the bottom of the image
+            break
 
-    return image  # Ensure the modified image is returned
+    return image
 
 def crop_img(img, size_dict):
     x = size_dict["x"]
@@ -158,52 +129,43 @@ def crop_img(img, size_dict):
     return img[y : y + h, x : x + w]
 
 def inference_request(img: np.array, api_url: str):
-    """Send image to inference API endpoint and get the result."""
     _, img_encoded = cv2.imencode(".jpg", img)
     img_bytes = img_encoded.tobytes()
     try:
         response = requests.post(
             url=api_url,
             auth=HTTPBasicAuth(AUTH_USERNAME, ACCESS_KEY),
-            headers=headers,
-            data=img_bytes  # Send raw binary data
+            headers={"Content-Type": "image/jpg"},
+            data=img_bytes
         )
         if response.status_code == 200:
             print("Image sent successfully")
             print("Response JSON:")
-            pprint(response.json())  # Print the response for debugging
+            pprint(response.json())
             return response.json()
         else:
             print(f"Failed to send image. Status code: {response.status_code}")
-            print(f"Response content: {response.text}")  # debugging
+            print(f"Response content: {response.text}")
             return None
     except requests.exceptions.RequestException as e:
         print(f"Error sending request: {e}")
         return None
 
-# ==========================================================
-# Main Loop
-# ==========================================================
-
-# 카메라를 한 번 열고 지속적으로 사용
 cam = cv2.VideoCapture(0)
 if not cam.isOpened():
     print("Camera Error")
     exit(-1)
 
-# Initialize state
-state = 'normal'  # other states: 'pending', 'freeze'
+state = 'normal'
 delay_count = 0
 freeze_count = 0
 annotated_image = None
 
-# crop_info가 필요하다면 설정
 crop_info = {"x": 870, "y": 110, "width": 600, "height": 530}
 
 try:
     while True:
         if state == 'normal':
-            # Read frame for live display
             ret, live_frame = cam.read()
             if not ret:
                 print("Failed to read frame from camera")
@@ -212,21 +174,17 @@ try:
             if crop_info is not None:
                 live_frame = crop_img(live_frame, crop_info)
 
-            # Check for serial data
             if ser.in_waiting > 0:
                 data = ser.read()
                 print(f"Received data: {data}")
                 if data == b"0":
-                    # Switch to 'pending' state
                     state = 'pending'
                     delay_count = CAPTURE_DELAY_FRAMES
                     print(f"Switching to 'pending' state for {CAPTURE_DELAY_FRAMES} frames delay before capture.")
 
-            # Display live frame
             cv2.imshow('Live', live_frame)
 
         elif state == 'pending':
-            # Read frame and decrement delay_count
             ret, frame = cam.read()
             if not ret:
                 print("Failed to read frame from camera")
@@ -239,8 +197,6 @@ try:
             print(f"'pending' state: {delay_count} frames remaining before capture.")
 
             if delay_count <= 0:
-                # Capture frame and perform YOLO inference
-                # Save the frame
                 original_folder = 'original'
                 if not os.path.exists(original_folder):
                     os.makedirs(original_folder)
@@ -249,11 +205,10 @@ try:
                 cv2.imwrite(original_image_path, frame)
                 print(f"Saved original image to {original_image_path}")
 
-                # YOLO inference
                 result = inference_request(frame, api_url)
                 if result is not None:
                     print("YOLO Inference Result:")
-                    pprint(result)  # Print the result for debugging
+                    pprint(result)
 
                     objects = result.get('objects', [])
                     if objects:
@@ -269,7 +224,6 @@ try:
                     print("Failed to get inference result.")
                     annotated_image = frame.copy()
 
-                # YOLO 결과 이미지 저장
                 yolo_folder = 'Yolo'
                 if not os.path.exists(yolo_folder):
                     os.makedirs(yolo_folder)
@@ -277,15 +231,13 @@ try:
                 cv2.imwrite(annotated_image_path, annotated_image)
                 print(f"Annotated image saved to {annotated_image_path}")
 
-                # Switch to 'freeze' state
                 state = 'freeze'
                 freeze_count = FREEZE_FRAMES
                 print(f"Switching to 'freeze' state for {FREEZE_FRAMES} frames.")
 
         elif state == 'freeze':
-            # Display annotated image for FREEZE_FRAMES
+            # freeze 상태: annotated_image를 FREEZE_FRAMES 동안 지속적으로 표시
             if annotated_image is not None:
-                # Optional: Resize image if it's too large
                 display_image = annotated_image.copy()
                 max_width = 800
                 max_height = 600
@@ -293,6 +245,8 @@ try:
                 if width > max_width or height > max_height:
                     scaling_factor = min(max_width / width, max_height / height)
                     display_image = cv2.resize(display_image, None, fx=scaling_factor, fy=scaling_factor, interpolation=cv2.INTER_AREA)
+
+                # freeze 상태 동안 YOLO 결과 이미지를 계속 표시
                 cv2.imshow('Live', display_image)
                 print("Displaying annotated image.")
             else:
@@ -301,16 +255,29 @@ try:
             freeze_count -= 1
             print(f"'freeze' state: {freeze_count} frames remaining.")
 
+            # freeze 상태 유지 중에도 사용자에게 충분히 이미지가 보이도록 waitKey 시간 증가 (예: 100ms)
+            key = cv2.waitKey(100) & 0xFF
+            if key == ord('q'):
+                print("Exit key pressed. Exiting...")
+                break
+
             if freeze_count <= 0:
-                # Switch back to 'normal' state and send '1' to Arduino
                 state = 'normal'
                 ser.write(b"1")
                 print("Switching back to 'normal' state and sent '1' to Arduino.")
 
-        # Key input to exit
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            print("Exit key pressed. Exiting...")
+            # 여기서 break하지 않고 루프를 계속 돌면서 freeze_count가 줄어드는 동안 annotated_image를 계속 표시
+
+        else:
+            # 예기치 않은 상태 (이론상 발생 X)
+            print("Unexpected state encountered.")
             break
+
+        # freeze 상태가 아닌 경우에도 q 키로 종료 가능
+        if state != 'freeze':
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                print("Exit key pressed. Exiting...")
+                break
 
 except KeyboardInterrupt:
     print("Interrupted by user. Exiting...")
