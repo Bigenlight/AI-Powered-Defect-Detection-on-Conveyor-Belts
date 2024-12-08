@@ -16,8 +16,8 @@ import json
 # ==============================
 # Parameters
 # ==============================
-CAPTURE_DELAY_FRAMES = 10  # 'data == b"0"' 후 대기 프레임
-FREEZE_FRAMES = 30         # YOLO 결과 표시 프레임 수
+CAPTURE_DELAY_FRAMES = 2  # 'data == b"0"' 후 대기 프레임
+FREEZE_FRAMES = 15         # YOLO 결과 표시 프레임 수
 B0_DEBOUNCE_TIME = 0.5     # b"0" 신호 디바운싱 시간 (초)
 
 expected_counts = {
