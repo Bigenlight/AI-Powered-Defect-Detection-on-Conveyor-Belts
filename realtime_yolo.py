@@ -16,7 +16,7 @@ import json
 # ==============================
 # Parameters
 # ==============================
-CAPTURE_DELAY_FRAMES = 3  # 'data == b"0"' 신호 후 캡처까지 대기할 프레임 수
+CAPTURE_DELAY_FRAMES = 2  # 'data == b"0"' 신호 후 캡처까지 대기할 프레임 수
 FREEZE_FRAMES = 10         # YOLO 결과를 표시할 프레임 수
 
 # Initialize serial communication with Arduino
