@@ -16,8 +16,18 @@ import json
 # ==============================
 # Parameters
 # ==============================
-CAPTURE_DELAY_FRAMES = 2  # 'data == b"0"' 신호 후 캡처까지 대기할 프레임 수
-FREEZE_FRAMES = 15         # YOLO 결과를 표시할 프레임 수
+CAPTURE_DELAY_FRAMES = 10  # 'data == b"0"' 신호 후 캡처까지 대기할 프레임 수
+FREEZE_FRAMES = 30         # YOLO 결과를 표시할 프레임 수
+
+# Expected counts
+expected_counts = {
+    'BOOTSEL': 1,
+    'USB': 1,
+    'CHIPSET': 1,
+    'OSCILLATOR': 1,
+    'RASPBERRY PICO': 1,
+    'HOLE': 4
+}
 
 # Initialize serial communication with Arduino
 ser = serial.Serial("/dev/ttyACM0", 9600, timeout=1)
@@ -29,15 +39,15 @@ headers = {"Content-Type": "image/jpg"}
 api_url = "https://suite-endpoint-api-apne2.superb-ai.com/endpoints/8f81f503-b7c6-4220-8ad3-9e54ff2729c7/inference"
 
 COLOR_LIST = [
-    (255, 0, 0),      # Blue
-    (50, 205, 0),     # Green
-    (0, 0, 255),      # Red
-    (225, 205, 0),    # Cyan
-    (255, 0, 255),    # Magenta
-    (128, 0, 0),      # Maroon
-    (0, 128, 0),      # Dark Green
-    (50, 0, 128),     # Navy
-    (128, 128, 0),    # Olive
+    (255, 0, 0),      
+    (50, 205, 0),     
+    (0, 0, 255),      
+    (225, 205, 0),    
+    (255, 0, 255),    
+    (128, 0, 0),      
+    (0, 128, 0),      
+    (50, 0, 128),     
+    (128, 128, 0),    
 ]
 
 color_map = {}
@@ -55,70 +65,53 @@ def draw_bounding_boxes(image, objects, color_map):
         cls = obj.get('class', 'N/A')
         score = obj.get('score', 0)
         box = obj.get('box', [])
-
         if len(box) != 4:
             print(f"Invalid box format for object {obj}")
             continue
-
-        x1, y1, x2, y2 = box
-
         try:
-            x1, y1, x2, y2 = map(int, [x1, y1, x2, y2])
+            x1, y1, x2, y2 = map(int, box)
         except ValueError:
             print(f"Non-integer box coordinates for object {obj}")
             continue
 
         color = get_color_for_class(cls, color_map)
-
         cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
-
         label = f"{cls}: {score:.2f}"
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 0.5
         thickness = 1
         (text_width, text_height), baseline = cv2.getTextSize(label, font, font_scale, thickness)
-
         label_bg_x1 = x1
         label_bg_y1 = y1 - text_height - baseline if y1 - text_height - baseline > 0 else y1 + text_height + baseline
         label_bg_x2 = x1 + text_width
         label_bg_y2 = y1
-
         label_bg_y1 = max(label_bg_y1, 0)
         label_bg_x2 = min(label_bg_x2, image.shape[1])
-
         cv2.rectangle(image, (label_bg_x1, label_bg_y1), (label_bg_x2, label_bg_y2), color, thickness=cv2.FILLED)
-
         brightness = sum(color)
         text_color = (0, 0, 0) if brightness > 600 else (255, 255, 255)
-
         cv2.putText(image, label, (label_bg_x1, label_bg_y2 - baseline), font, font_scale, text_color, thickness, cv2.LINE_AA)
-
     return image
 
 def draw_label_counts(image, label_counts, color_map):
     x = 10
-    y = 20
     font = cv2.FONT_HERSHEY_SIMPLEX
     font_scale = 0.6
     thickness = 1
+    y = 20
     (text_width, text_height), baseline = cv2.getTextSize('Text', font, font_scale, thickness)
     line_height = text_height + baseline + 5
-
     for label, count in label_counts.items():
         text = f"{label}: {count}"
         color = get_color_for_class(label, color_map)
         (text_width, text_height), baseline = cv2.getTextSize(text, font, font_scale, thickness)
         cv2.rectangle(image, (x - 5, y - text_height - 5), (x + text_width + 5, y + 5), color, cv2.FILLED)
-
         brightness = sum(color)
         text_color = (0, 0, 0) if brightness > 600 else (255, 255, 255)
-
         cv2.putText(image, text, (x, y), font, font_scale, text_color, thickness, cv2.LINE_AA)
-
         y += line_height
         if y > image.shape[0]:
             break
-
     return image
 
 def crop_img(img, size_dict):
@@ -151,6 +144,77 @@ def inference_request(img: np.array, api_url: str):
         print(f"Error sending request: {e}")
         return None
 
+def draw_error_info(image, differences):
+    """
+    differences: list of tuples (class_name, difference)
+    difference > 0: more
+    difference < 0: less
+    """
+
+    # 이미지 테두리에 빨간색 라인
+    cv2.rectangle(image, (0,0), (image.shape[1]-1, image.shape[0]-1), (0,0,255), 5)
+
+    # 에러 메시지 표시 (좌하단)
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.8
+    thickness = 2
+    text_lines = []
+    for cls, diff in differences:
+        if diff > 0:
+            text_lines.append(f"{cls} {diff} more")
+        else:
+            text_lines.append(f"{cls} {-diff} less")
+
+    # 좌하단에서 위로
+    # 밑에서부터 10픽셀 위에 첫 라인
+    y = image.shape[0] - 10
+    for line in reversed(text_lines):
+        text = f"ERROR: {line}"
+        (tw, th), base = cv2.getTextSize(text, font, font_scale, thickness)
+        # text를 왼쪽 하단에 맞추기
+        cv2.putText(image, text, (10, y), font, font_scale, (0,0,255), thickness, cv2.LINE_AA)
+        y -= (th + 10)
+
+
+def highlight_extra_objects(image, objects, differences):
+    """
+    differences: dict {class_name: difference}
+    For classes with diff > 0 (more objects than expected), highlight the lowest scoring 'diff' objects with a semi-transparent yellow box.
+    """
+    # 필터링: difference가 양수인 클래스만 처리
+    over_classes = {cls: diff for cls, diff in differences.items() if diff > 0}
+    if not over_classes:
+        return image
+
+    # 객체를 클래스별로 모아서 점수순 정렬
+    from operator import itemgetter
+    class_objects = {}
+    for obj in objects:
+        cls = obj.get('class', 'N/A')
+        if cls in over_classes:
+            class_objects.setdefault(cls, []).append(obj)
+    
+    # 각 클래스별로 점수 낮은 순으로 정렬 후 diff 개수만큼 하이라이팅
+    overlay = image.copy()
+    for cls, diff in over_classes.items():
+        objs = class_objects.get(cls, [])
+        # 점수 낮은 순 정렬
+        objs.sort(key=itemgetter('score'))
+        # diff 개수만큼 반투명 노랑 박스
+        highlight_objs = objs[:diff]
+        yellow = (0,255,255)  # BGR
+        for ho in highlight_objs:
+            box = ho['box']
+            x1, y1, x2, y2 = map(int, box)
+            # 반투명 박스: overlay에 노랑 박스 그리고 원본과 합성
+            cv2.rectangle(overlay, (x1, y1), (x2, y2), yellow, cv2.FILLED)
+    
+    # 반투명 합성 alpha=0.5
+    alpha = 0.5
+    cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0, image)
+    return image
+
+# 카메라 캡처
 cam = cv2.VideoCapture(0)
 if not cam.isOpened():
     print("Camera Error")
@@ -162,6 +226,7 @@ freeze_count = 0
 annotated_image = None
 
 crop_info = {"x": 870, "y": 110, "width": 600, "height": 530}
+objects = []  # YOLO 결과 저장용 (freeze 상태에서 필요할 수 있음)
 
 try:
     while True:
@@ -206,16 +271,34 @@ try:
                 print(f"Saved original image to {original_image_path}")
 
                 result = inference_request(frame, api_url)
+                label_counts = Counter()
+                objects = []
                 if result is not None:
                     print("YOLO Inference Result:")
                     pprint(result)
-
                     objects = result.get('objects', [])
                     if objects:
                         print(f"Number of objects detected: {len(objects)}")
-                        label_counts = Counter(obj.get('class', 'N/A') for obj in objects)
+                        for obj in objects:
+                            cls = obj.get('class', 'N/A')
+                            label_counts[cls] += 1
+
                         annotated_image = draw_bounding_boxes(frame.copy(), objects, color_map)
                         annotated_image = draw_label_counts(annotated_image, label_counts, color_map)
+
+                        # 개수 비교
+                        differences = {}
+                        for cls, exp_count in expected_counts.items():
+                            act_count = label_counts.get(cls, 0)
+                            diff = act_count - exp_count
+                            if diff != 0:
+                                differences[cls] = diff
+
+                        if differences:
+                            # 에러 표시(빨간 테두리, 왼쪽 하단 ERROR)
+                            draw_error_info(annotated_image, list(differences.items()))
+                            # 초과된 객체들 반투명 노랑 박스
+                            annotated_image = highlight_extra_objects(annotated_image, objects, differences)
                         print(f"annotated_image shape: {annotated_image.shape}")
                     else:
                         print("No objects detected.")
@@ -233,10 +316,12 @@ try:
 
                 state = 'freeze'
                 freeze_count = FREEZE_FRAMES
-                print(f"Switching to 'freeze' state for {FREEZE_FRAMES} frames.")
+                # freeze 상태가 되자마자 Arduino에 b"1" 신호 전송
+                ser.write(b"1")
+                print(f"Switching to 'freeze' state for {FREEZE_FRAMES} frames and sent '1' to Arduino.")
 
         elif state == 'freeze':
-            # freeze 상태: annotated_image를 FREEZE_FRAMES 동안 지속적으로 표시
+            # freeze 상태에서 annotated_image 표시
             if annotated_image is not None:
                 display_image = annotated_image.copy()
                 max_width = 800
@@ -246,7 +331,6 @@ try:
                     scaling_factor = min(max_width / width, max_height / height)
                     display_image = cv2.resize(display_image, None, fx=scaling_factor, fy=scaling_factor, interpolation=cv2.INTER_AREA)
 
-                # freeze 상태 동안 YOLO 결과 이미지를 계속 표시
                 cv2.imshow('Live', display_image)
                 print("Displaying annotated image.")
             else:
@@ -255,26 +339,31 @@ try:
             freeze_count -= 1
             print(f"'freeze' state: {freeze_count} frames remaining.")
 
-            # freeze 상태 유지 중에도 사용자에게 충분히 이미지가 보이도록 waitKey 시간 증가 (예: 100ms)
-            key = cv2.waitKey(50) & 0xFF
+            # freeze 상태 동안 b"0" 수신 시 바로 pending으로 전환
+            if ser.in_waiting > 0:
+                data = ser.read()
+                if data == b"0":
+                    state = 'pending'
+                    delay_count = CAPTURE_DELAY_FRAMES
+                    print(f"Received b'0' in freeze state, switching to 'pending' state for {CAPTURE_DELAY_FRAMES} frames delay.")
+                    continue
+
+            # 표시 시간(대기시간) 조정
+            key = cv2.waitKey(100) & 0xFF
             if key == ord('q'):
                 print("Exit key pressed. Exiting...")
                 break
 
             if freeze_count <= 0:
+                # freeze 끝나도 이제 여기서는 b"1" 안보냄 (이미 freeze 진입 시 보냈으므로)
                 state = 'normal'
-                ser.write(b"1")
-                print("Switching back to 'normal' state and sent '1' to Arduino.")
-
-            # 여기서 break하지 않고 루프를 계속 돌면서 freeze_count가 줄어드는 동안 annotated_image를 계속 표시
+                print("Freeze ended, switching back to 'normal' state.")
 
         else:
-            # 예기치 않은 상태 (이론상 발생 X)
             print("Unexpected state encountered.")
             break
 
-        # freeze 상태가 아닌 경우에도 q 키로 종료 가능
-        if state != 'freeze':
+        if state not in ('freeze',):
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 print("Exit key pressed. Exiting...")
                 break
