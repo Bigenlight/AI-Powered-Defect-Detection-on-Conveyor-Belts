@@ -31,7 +31,7 @@ expected_counts = {
 class_thresholds = {
     'BOOTSEL': 0.96,
     'USB': 0.96,
-    'CHIPSET': 0.95,
+    'CHIPSET': 0.94,
     'OSCILLATOR': 0.94,
     'RASPBERRY PICO': 0.97,
     'HOLE': 0.85
