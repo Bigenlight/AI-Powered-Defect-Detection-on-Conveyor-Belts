@@ -2,14 +2,12 @@ import time
 import serial
 import requests
 import numpy as np
-from io import BytesIO
 from pprint import pprint
 import cv2
 import os
 import random
 from collections import Counter
 import datetime
-
 from requests.auth import HTTPBasicAuth
 import json
 
@@ -29,13 +27,26 @@ expected_counts = {
     'HOLE': 4
 }
 
+# 클래스별 점수 기준값 설정
+class_thresholds = {
+    'BOOTSEL': 0.8,
+    'USB': 0.8,
+    'CHIPSET': 0.8,
+    'OSCILLATOR': 0.8,
+    'RASPBERRY PICO': 0.8,
+    'HOLE': 0.7
+}
+
+# 시리얼 포트 설정
 ser = serial.Serial("/dev/ttyACM0", 9600, timeout=1)
 
+# YOLO API 설정
 ACCESS_KEY = "ezeJWt9iFMaP7HGvwYgds6Za1Sb35fwHaPZF89mi"
 AUTH_USERNAME = "kdt2024_1-27"
-headers = {"Content-Type": "image/jpg"}
 api_url = "https://suite-endpoint-api-apne2.superb-ai.com/endpoints/8c223a14-5aaa-40b4-ad75-b1b96ffb4ab3/inference"
+headers = {"Content-Type": "image/jpg"}
 
+# 색상 목록 (BGR 형식)
 COLOR_LIST = [
     (255, 0, 0),
     (50, 205, 0),
@@ -51,6 +62,7 @@ COLOR_LIST = [
 color_map = {}
 
 def get_color_for_class(cls, color_map):
+    """클래스별 고유 색상 할당"""
     if cls not in color_map:
         if len(color_map) < len(COLOR_LIST):
             color_map[cls] = COLOR_LIST[len(color_map)]
@@ -59,6 +71,7 @@ def get_color_for_class(cls, color_map):
     return color_map[cls]
 
 def draw_bounding_boxes(image, objects, color_map):
+    """바운딩 박스와 레이블 그리기"""
     for obj in objects:
         cls = obj.get('class', 'N/A')
         score = obj.get('score', 0)
@@ -93,6 +106,7 @@ def draw_bounding_boxes(image, objects, color_map):
     return image
 
 def draw_label_counts(image, label_counts, color_map):
+    """레이블 개수를 이미지 좌상단에 표시"""
     x = 10
     y = 20
     font = cv2.FONT_HERSHEY_SIMPLEX
@@ -115,6 +129,7 @@ def draw_label_counts(image, label_counts, color_map):
     return image
 
 def crop_img(img, size_dict):
+    """이미지 자르기"""
     x = size_dict["x"]
     y = size_dict["y"]
     w = size_dict["width"]
@@ -122,6 +137,7 @@ def crop_img(img, size_dict):
     return img[y : y + h, x : x + w]
 
 def inference_request(img: np.array, api_url: str):
+    """이미지를 YOLO API로 전송하고 결과 받기"""
     _, img_encoded = cv2.imencode(".jpg", img)
     img_bytes = img_encoded.tobytes()
     try:
@@ -145,9 +161,8 @@ def inference_request(img: np.array, api_url: str):
         return None
 
 def draw_error_info(image, differences):
-    # 빨간색 테두리
+    """에러 정보를 이미지에 그리기 (빨간 테두리 및 ERROR 메시지)"""
     cv2.rectangle(image, (0,0), (image.shape[1]-1, image.shape[0]-1), (0,0,255), 5)
-    # 에러 메시지 (좌하단)
     font = cv2.FONT_HERSHEY_SIMPLEX
     font_scale = 0.8
     thickness = 2
@@ -166,6 +181,7 @@ def draw_error_info(image, differences):
         y -= (th + 10)
 
 def highlight_extra_objects(image, objects, differences):
+    """초과된 객체들을 반투명 노랑 박스로 하이라이트"""
     from operator import itemgetter
     over_classes = {cls: diff for cls, diff in differences.items() if diff > 0}
     if not over_classes:
@@ -176,7 +192,6 @@ def highlight_extra_objects(image, objects, differences):
         cls = obj.get('class', 'N/A')
         if cls in over_classes:
             class_objects.setdefault(cls, []).append(obj)
-    # 점수 낮은 순 정렬 후 diff 개만큼 반투명 노랑 박스
     for cls, diff in over_classes.items():
         objs = class_objects.get(cls, [])
         objs.sort(key=itemgetter('score'))
@@ -190,6 +205,12 @@ def highlight_extra_objects(image, objects, differences):
     cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0, image)
     return image
 
+# 샤프닝 커널 정의
+sharpening_kernel = np.array([[0, -1, 0],
+                              [-1, 5, -1],
+                              [0, -1, 0]], dtype=np.float32)
+
+# 카메라 초기화
 cam = cv2.VideoCapture(0)
 if not cam.isOpened():
     print("Camera Error")
@@ -200,7 +221,7 @@ delay_count = 0
 freeze_count = 0
 annotated_image = None
 objects = []
-last_b0_time = 0.0  # 마지막 b"0" 처리 시간
+last_b0_time = 0.0
 
 crop_info = {"x": 870, "y": 110, "width": 600, "height": 530}
 
@@ -211,6 +232,10 @@ try:
             if not ret:
                 print("Failed to read frame from camera")
                 break
+            
+            # 샤프닝 필터 적용
+            live_frame = cv2.filter2D(live_frame, -1, sharpening_kernel)
+
             if crop_info is not None:
                 live_frame = crop_img(live_frame, crop_info)
 
@@ -218,14 +243,13 @@ try:
                 data = ser.read()
                 print(f"Received data: {data}")
                 if data == b"0":
-                    # b"0" 디바운싱 체크
                     now = time.time()
                     if now - last_b0_time > B0_DEBOUNCE_TIME:
                         last_b0_time = now
                         state = 'pending'
                         delay_count = CAPTURE_DELAY_FRAMES
                         print(f"Switching to 'pending' state for {CAPTURE_DELAY_FRAMES} frames delay before capture.")
-                        time.sleep(0.1)  # 상태 전환 후 약간의 대기
+                        time.sleep(0.1)
                     else:
                         print("b'0' ignored due to debounce.")
 
@@ -236,6 +260,10 @@ try:
             if not ret:
                 print("Failed to read frame from camera")
                 break
+            
+            # 샤프닝 필터 적용
+            frame = cv2.filter2D(frame, -1, sharpening_kernel)
+
             if crop_info is not None:
                 frame = crop_img(frame, crop_info)
 
@@ -257,9 +285,18 @@ try:
                 if result is not None:
                     print("YOLO Inference Result:")
                     pprint(result)
-                    objects = result.get('objects', [])
+                    raw_objects = result.get('objects', [])
+                    # 클래스별 threshold 기반 필터링
+                    objects = []
+                    for obj in raw_objects:
+                        cls = obj.get('class', 'N/A')
+                        score = obj.get('score', 0)
+                        threshold = class_thresholds.get(cls, 0.5) # 없으면 기본 0.5
+                        if score >= threshold:
+                            objects.append(obj)
+
                     if objects:
-                        print(f"Number of objects detected: {len(objects)}")
+                        print(f"Number of objects detected after threshold filtering: {len(objects)}")
                         for obj in objects:
                             cls = obj.get('class', 'N/A')
                             label_counts[cls] += 1
@@ -276,13 +313,18 @@ try:
                             annotated_image = highlight_extra_objects(annotated_image, objects, differences)
                         print(f"annotated_image shape: {annotated_image.shape}")
                     else:
-                        print("No objects detected.")
+                        print("No objects detected after threshold filtering.")
                         annotated_image = frame.copy()
                 else:
                     print("Failed to get inference result.")
                     annotated_image = frame.copy()
 
-                yolo_folder = 'Yolo'
+                # 결함 여부에 따라 저장 폴더 결정
+                if differences:
+                    yolo_folder = 'Yolo_defects'
+                else:
+                    yolo_folder = 'Yolo'
+
                 if not os.path.exists(yolo_folder):
                     os.makedirs(yolo_folder)
                 annotated_image_path = os.path.join(yolo_folder, f"{timestamp}_annotated.jpg")
@@ -291,10 +333,9 @@ try:
 
                 state = 'freeze'
                 freeze_count = FREEZE_FRAMES
-                # freeze 상태 진입 시 b"1" 전송 및 약간 대기
                 ser.write(b"1")
                 print(f"Switching to 'freeze' state for {FREEZE_FRAMES} frames and sent '1' to Arduino.")
-                time.sleep(0.1)  # 신호 처리 시간 확보
+                time.sleep(0.1)
 
         elif state == 'freeze':
             if annotated_image is not None:
@@ -323,7 +364,7 @@ try:
                         state = 'pending'
                         delay_count = CAPTURE_DELAY_FRAMES
                         print(f"Received b'0' in freeze state, switching to 'pending' state.")
-                        time.sleep(0.1)  # 상태 전환 후 약간의 대기
+                        time.sleep(0.1)
                         continue
                     else:
                         print("b'0' in freeze ignored due to debounce.")
@@ -336,12 +377,13 @@ try:
             if freeze_count <= 0:
                 state = 'normal'
                 print("Freeze ended, switching back to 'normal' state.")
-                time.sleep(0.1)  # 상태 전환 후 약간 대기
+                time.sleep(0.1)
 
         else:
             print("Unexpected state encountered.")
             break
 
+        # freeze 상태가 아닌 경우에도 q 키로 종료 가능
         if state not in ('freeze',):
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 print("Exit key pressed. Exiting...")
