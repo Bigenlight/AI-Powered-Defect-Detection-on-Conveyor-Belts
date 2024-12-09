@@ -42,7 +42,7 @@ class_thresholds = {
     'RASPBERRY PICO': 0.5,
     'HOLE': 0.5
 }
-}
+
 
 # 시리얼 포트 설정
 ser = serial.Serial("/dev/ttyACM0", 9600, timeout=1)
