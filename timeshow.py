@@ -15,7 +15,7 @@ import json
 # ==============================
 CAPTURE_DELAY_FRAMES = 2  # 'data == b"0"' 후 대기 프레임
 FREEZE_FRAMES = 15         # YOLO 결과 표시 프레임 수
-B0_DEBOUNCE_TIME = 0.3     # b"0" 신호 디바운싱 시간 (초)
+B0_DEBOUNCE_TIME = 0.01     # b"0" 신호 디바운싱 시간 (초)
 
 expected_counts = {
     'BOOTSEL': 1,
