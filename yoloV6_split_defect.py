@@ -10,7 +10,7 @@ from collections import Counter
 INPUT_FOLDER = "/home/theo/Downloads/after_sharpened_2"
 OUTPUT_FOLDER = "/home/theo/Downloads/result_YoloV6/"
 URL = "https://suite-endpoint-api-apne2.superb-ai.com/endpoints/3600b672-a324-48ce-bb00-20a462c1a8ab/inference"
-ACCESS_KEY = "ezeJWt9iFMaP7HGvwYgds6Za1Sb35fwHaPZF89mi"
+ACCESS_KEY = " ... "
 AUTH_USERNAME = "kdt2024_1-27"
 IMAGE_EXTENSION = ".jpg"  # Supported image extension
 # -------------------------------------------------------
