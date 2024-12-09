@@ -18,7 +18,7 @@ import json
 ser = serial.Serial("/dev/ttyACM1", 9600)
 
 # Configuration for YOLO API
-ACCESS_KEY = "ezeJWt9iFMaP7HGvwYgds6Za1Sb35fwHaPZF89mi"
+ACCESS_KEY = " ... "
 AUTH_USERNAME = "kdt2024_1-27"
 START_INDEX = 0
 END_INDEX = 300
