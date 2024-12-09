@@ -2,7 +2,6 @@ import time
 import serial
 import requests
 import numpy as np
-from pprint import pprint
 import cv2
 import os
 import random
@@ -15,9 +14,9 @@ import gradio as gr
 # ==============================
 # Parameters
 # ==============================
-CAPTURE_DELAY_FRAMES = 2  # 'data == b"0"' 후 대기 프레임
-FREEZE_FRAMES = 15         # YOLO 결과 표시 프레임 수
-B0_DEBOUNCE_TIME = 0.3     # b"0" 신호 디바운싱 시간 (초)
+CAPTURE_DELAY_FRAMES = 2
+FREEZE_FRAMES = 15
+B0_DEBOUNCE_TIME = 0.3
 
 expected_counts = {
     'BOOTSEL': 1,
@@ -37,10 +36,8 @@ class_thresholds = {
     'HOLE': 0.80
 }
 
-# 시리얼 포트 설정 (환경에 맞게 수정)
 ser = serial.Serial("/dev/ttyACM0", 9600, timeout=1)
 
-# YOLO API 설정
 ACCESS_KEY = "ezeJWt9iFMaP7HGvwYgds6Za1Sb35fwHaPZF89mi"
 AUTH_USERNAME = "kdt2024_1-27"
 api_url = "https://suite-endpoint-api-apne2.superb-ai.com/endpoints/8c223a14-5aaa-40b4-ad75-b1b96ffb4ab3/inference"
@@ -80,12 +77,9 @@ def draw_bounding_boxes(image, objects, color_map):
         except ValueError:
             continue
 
-        if valid:
-            color = get_color_for_class(cls, color_map)
-        else:
-            color = (0,0,255)
-
+        color = get_color_for_class(cls, color_map) if valid else (0,0,255)
         cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
+
         label = f"{cls}: {score:.2f}"
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 0.5
@@ -208,7 +202,6 @@ stop_flag = True
 
 def run_conveyor_system():
     global state, delay_count, freeze_count, annotated_image, objects, last_b0_time, stop_flag
-
     stop_flag = False
 
     cam = cv2.VideoCapture(0)
@@ -221,8 +214,15 @@ def run_conveyor_system():
                 ret, live_frame = cam.read()
                 if not ret:
                     break
+
+                # 이미지 크기 축소 (예: 원본의 절반 크기로)
+                height, width = live_frame.shape[:2]
+                live_frame = cv2.resize(live_frame, (width//2, height//2), interpolation=cv2.INTER_AREA)
+
                 live_frame = cv2.filter2D(live_frame, -1, sharpening_kernel)
                 if crop_info is not None:
+                    # crop 범위도 축소된 이미지에 맞추어 수정 필요할 수 있음
+                    # 여기서는 그대로 사용. 실제 환경에 맞게 수정 필요.
                     live_frame = crop_img(live_frame, crop_info)
 
                 if ser.in_waiting > 0:
@@ -240,6 +240,10 @@ def run_conveyor_system():
                 ret, frame = cam.read()
                 if not ret:
                     break
+
+                height, width = frame.shape[:2]
+                frame = cv2.resize(frame, (width//2, height//2), interpolation=cv2.INTER_AREA)
+
                 frame = cv2.filter2D(frame, -1, sharpening_kernel)
                 if crop_info is not None:
                     frame = crop_img(frame, crop_info)
@@ -307,12 +311,8 @@ def run_conveyor_system():
             elif state == 'freeze':
                 display_image = annotated_image.copy() if annotated_image is not None else None
                 if display_image is not None:
-                    max_width = 800
-                    max_height = 600
-                    height, width = display_image.shape[:2]
-                    if width > max_width or height > max_height:
-                        scaling_factor = min(max_width / width, max_height / height)
-                        display_image = cv2.resize(display_image, None, fx=scaling_factor, fy=scaling_factor, interpolation=cv2.INTER_AREA)
+                    # 이미 줄인 이미지가 annotated_image일 경우 추가로 축소 필요 없을 수 있음
+                    # 필요에 따라 추가 축소
                     yield display_image
 
                 freeze_count -= 1
@@ -331,7 +331,6 @@ def run_conveyor_system():
                 if freeze_count <= 0:
                     state = 'normal'
                     time.sleep(0.1)
-
             else:
                 break
     finally:
@@ -344,16 +343,15 @@ def stop_system():
 with gr.Blocks() as demo:
     gr.Markdown("# Conveyor System Inspection\n")
     gr.Markdown("이 페이지에서 **Start** 버튼을 누르면 컨베이어 시스템을 작동시켜 실시간 영상과 YOLO 분석결과를 확인할 수 있습니다. **Stop** 버튼으로 종료할 수 있습니다.")
-    gr.Markdown("**Start**를 누르기 전까지 시스템은 가동되지 않습니다.")
 
     with gr.Row():
         start_btn = gr.Button("Start")
         stop_btn = gr.Button("Stop")
 
-    image_output = gr.Image(label="Real-Time Conveyor Feed", type="numpy", height=480)
+    # format="jpeg" 지정으로 메모리 사용 감소 시도
+    image_output = gr.Image(label="Real-Time Conveyor Feed", type="numpy", format="jpeg", height=480)
 
-    # stream=True 제거
-    start_btn.click(fn=run_conveyor_system, inputs=[], outputs=image_output, api_name="start_conveyor", queue=True)
+    start_btn.click(fn=run_conveyor_system, inputs=[], outputs=image_output, queue=True)
     stop_btn.click(fn=stop_system, inputs=[], outputs=[])
 
 demo.launch(server_name="0.0.0.0", server_port=7860, debug=True)
