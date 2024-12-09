@@ -118,13 +118,15 @@ def draw_label_counts(image, label_counts, color_map):
     return image
 
 def crop_img(img, size_dict):
+    if img is None or img.size == 0:
+        return None
     x = size_dict["x"]
     y = size_dict["y"]
     w = size_dict["width"]
     h = size_dict["height"]
-    # img 크기 체크
-    if img is None or img.size == 0 or y+h > img.shape[0] or x+w > img.shape[1]:
-        return img
+    if y+h > img.shape[0] or x+w > img.shape[1]:
+        # 크롭 범위가 이미지 범위를 벗어남
+        return None
     return img[y : y + h, x : x + w]
 
 def inference_request(img: np.array, api_url: str):
@@ -217,20 +219,17 @@ def run_conveyor_system():
                 if not ret or live_frame is None or live_frame.size == 0:
                     break
 
-                # 이미지 처리 전 유효성 검사
-                if live_frame is None or live_frame.size == 0:
-                    continue  # 다음 프레임 시도
-
-                # 원하는 해상도로 리사이즈 (너무 크면 메모리 문제)
                 height, width = live_frame.shape[:2]
+                # 이미지 해상도 축소
                 live_frame = cv2.resize(live_frame, (width//2, height//2), interpolation=cv2.INTER_AREA)
                 live_frame = cv2.filter2D(live_frame, -1, sharpening_kernel)
 
-                if crop_info is not None:
-                    cropped = crop_img(live_frame, crop_info)
-                    if cropped is not None and cropped.size != 0:
-                        live_frame = cropped
-                    # else: 그대로 사용하거나 continue로 넘어갈 수도 있음
+                # 크롭 적용
+                cropped = crop_img(live_frame, crop_info)
+                if cropped is None or cropped.size == 0:
+                    # 크롭 불가능하면 이 프레임 스킵
+                    continue
+                live_frame = cropped
 
                 if ser.in_waiting > 0:
                     data = ser.read()
@@ -242,9 +241,7 @@ def run_conveyor_system():
                             delay_count = CAPTURE_DELAY_FRAMES
                             time.sleep(0.1)
 
-                # 유효한 이미지인지 확인 후 yield
-                if live_frame is not None and live_frame.size != 0:
-                    yield live_frame
+                yield live_frame
 
             elif state == 'pending':
                 ret, frame = cam.read()
@@ -254,10 +251,11 @@ def run_conveyor_system():
                 height, width = frame.shape[:2]
                 frame = cv2.resize(frame, (width//2, height//2), interpolation=cv2.INTER_AREA)
                 frame = cv2.filter2D(frame, -1, sharpening_kernel)
-                if crop_info is not None:
-                    cropped = crop_img(frame, crop_info)
-                    if cropped is not None and cropped.size != 0:
-                        frame = cropped
+                cropped = crop_img(frame, crop_info)
+                if cropped is None or cropped.size == 0:
+                    # 크롭 불가능하면 스킵
+                    continue
+                frame = cropped
 
                 delay_count -= 1
                 if delay_count <= 0 and frame is not None and frame.size != 0:
@@ -318,8 +316,7 @@ def run_conveyor_system():
                     ser.write(b"1")
                     time.sleep(0.1)
 
-                if frame is not None and frame.size != 0:
-                    yield frame
+                yield frame
 
             elif state == 'freeze':
                 if annotated_image is not None and annotated_image.size != 0:
@@ -352,15 +349,13 @@ def stop_system():
 
 with gr.Blocks() as demo:
     gr.Markdown("# Conveyor System Inspection\n")
-    gr.Markdown("이 페이지에서 **Start** 버튼을 누르면 컨베이어 시스템을 작동시켜 실시간 영상과 YOLO 분석결과를 확인할 수 있습니다. **Stop** 버튼으로 종료할 수 있습니다.")
+    gr.Markdown("Start 버튼을 누르면 컨베이어 시스템이 작동하며, 지정된 crop 영역(870,110,600x530)으로 잘린 이미지를 확인할 수 있습니다.")
 
     with gr.Row():
         start_btn = gr.Button("Start")
         stop_btn = gr.Button("Stop")
 
-    # 빈 이미지 방지를 위해 format="jpeg" 유지. 
-    # 혹시 문제 지속 시 format="png"로 변경 시도.
-    image_output = gr.Image(label="Real-Time Conveyor Feed", type="numpy", format="jpeg", height=480)
+    image_output = gr.Image(label="Real-Time Conveyor Feed (Cropped)", type="numpy", format="jpeg", height=480)
 
     start_btn.click(fn=run_conveyor_system, inputs=[], outputs=image_output, queue=True)
     stop_btn.click(fn=stop_system, inputs=[], outputs=[])
