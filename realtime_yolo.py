@@ -31,10 +31,10 @@ expected_counts = {
 class_thresholds = {
     'BOOTSEL': 0.97,
     'USB': 0.96,
-    'CHIPSET': 0.8,
-    'OSCILLATOR': 0.8,
-    'RASPBERRY PICO': 0.8,
-    'HOLE': 0.7
+    'CHIPSET': 0.95,
+    'OSCILLATOR': 0.94,
+    'RASPBERRY PICO': 0.97,
+    'HOLE': 0.85
 }
 
 # 시리얼 포트 설정
