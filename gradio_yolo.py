@@ -73,7 +73,7 @@ def draw_bounding_boxes(image, objects, color_map):
     for obj in objects:
         cls = obj.get('class', 'N/A')
         score = obj.get('score', 0)
-        valid = obj.get('valid', True)  # threshold 이상 여부
+        valid = obj.get('valid', True)
         box = obj.get('box', [])
         if len(box) != 4:
             continue
@@ -202,180 +202,171 @@ sharpening_kernel = np.array([[0, -1, 0],
                               [-1, 5, -1],
                               [0, -1, 0]], dtype=np.float32)
 
-cam = cv2.VideoCapture(0)
-if not cam.isOpened():
-    raise RuntimeError("Camera Error")
-
 state = 'normal'
 delay_count = 0
 freeze_count = 0
 annotated_image = None
 objects = []
 last_b0_time = 0.0
-
 crop_info = {"x": 870, "y": 110, "width": 600, "height": 530}
-
-stop_flag = False  # Gradio에서 Stop 버튼으로 True로 바꿔 종료 제어
+stop_flag = True  # 초기에는 True로 두어 동작하지 않도록 함
 
 def run_conveyor_system():
     global state, delay_count, freeze_count, annotated_image, objects, last_b0_time, stop_flag
-    
-    while not stop_flag:
-        if state == 'normal':
-            ret, live_frame = cam.read()
-            if not ret:
-                break
-            live_frame = cv2.filter2D(live_frame, -1, sharpening_kernel)
-            if crop_info is not None:
-                live_frame = crop_img(live_frame, crop_info)
 
-            if ser.in_waiting > 0:
-                data = ser.read()
-                if data == b"0":
-                    now = time.time()
-                    if now - last_b0_time > B0_DEBOUNCE_TIME:
-                        last_b0_time = now
-                        state = 'pending'
-                        delay_count = CAPTURE_DELAY_FRAMES
-                        time.sleep(0.1)
+    # Start 버튼을 눌렀으므로 stop_flag를 False로 전환
+    stop_flag = False
 
-            yield live_frame
+    # 여기서 카메라 오픈 (Start 누르기 전에는 오픈 안 함)
+    cam = cv2.VideoCapture(0)
+    if not cam.isOpened():
+        raise RuntimeError("Camera Error: Cannot open camera.")
 
-        elif state == 'pending':
-            ret, frame = cam.read()
-            if not ret:
-                break
-            frame = cv2.filter2D(frame, -1, sharpening_kernel)
-            if crop_info is not None:
-                frame = crop_img(frame, crop_info)
+    try:
+        while not stop_flag:
+            if state == 'normal':
+                ret, live_frame = cam.read()
+                if not ret:
+                    break
+                live_frame = cv2.filter2D(live_frame, -1, sharpening_kernel)
+                if crop_info is not None:
+                    live_frame = crop_img(live_frame, crop_info)
 
-            delay_count -= 1
-            if delay_count <= 0:
-                # 이미지 저장
-                original_folder = 'original'
-                if not os.path.exists(original_folder):
-                    os.makedirs(original_folder)
-                timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-                original_image_path = os.path.join(original_folder, f"{timestamp}.jpg")
-                cv2.imwrite(original_image_path, frame)
+                if ser.in_waiting > 0:
+                    data = ser.read()
+                    if data == b"0":
+                        now = time.time()
+                        if now - last_b0_time > B0_DEBOUNCE_TIME:
+                            last_b0_time = now
+                            state = 'pending'
+                            delay_count = CAPTURE_DELAY_FRAMES
+                            time.sleep(0.1)
+                yield live_frame
 
-                result = inference_request(frame, api_url)
-                label_counts = Counter()
-                objects = []
-                differences = {}
-                if result is not None:
-                    raw_objects = result.get('objects', [])
-                    for obj in raw_objects:
-                        cls = obj.get('class', 'N/A')
-                        score = obj.get('score', 0)
-                        threshold = class_thresholds.get(cls, 0.5)
-                        if score >= threshold:
-                            obj['valid'] = True
-                            label_counts[cls] += 1
+            elif state == 'pending':
+                ret, frame = cam.read()
+                if not ret:
+                    break
+                frame = cv2.filter2D(frame, -1, sharpening_kernel)
+                if crop_info is not None:
+                    frame = crop_img(frame, crop_info)
+
+                delay_count -= 1
+                if delay_count <= 0:
+                    # 이미지 저장
+                    original_folder = 'original'
+                    if not os.path.exists(original_folder):
+                        os.makedirs(original_folder)
+                    timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+                    original_image_path = os.path.join(original_folder, f"{timestamp}.jpg")
+                    cv2.imwrite(original_image_path, frame)
+
+                    result = inference_request(frame, api_url)
+                    label_counts = Counter()
+                    objects = []
+                    differences = {}
+                    if result is not None:
+                        raw_objects = result.get('objects', [])
+                        for obj in raw_objects:
+                            cls = obj.get('class', 'N/A')
+                            score = obj.get('score', 0)
+                            threshold = class_thresholds.get(cls, 0.5)
+                            if score >= threshold:
+                                obj['valid'] = True
+                                label_counts[cls] += 1
+                            else:
+                                obj['valid'] = False
+                            objects.append(obj)
+
+                        annotated_image = frame.copy()
+                        if objects:
+                            annotated_image = draw_bounding_boxes(annotated_image, objects, color_map)
+                            annotated_image = draw_label_counts(annotated_image, label_counts, color_map)
+                            
+                            for cls, exp_count in expected_counts.items():
+                                act_count = label_counts.get(cls, 0)
+                                diff = act_count - exp_count
+                                if diff != 0:
+                                    differences[cls] = diff
+                            
+                            if differences:
+                                draw_error_info(annotated_image, list(differences.items()))
+                                annotated_image = highlight_extra_objects(annotated_image, objects, differences)
                         else:
-                            obj['valid'] = False
-                        objects.append(obj)
-
-                    annotated_image = frame.copy()
-                    if objects:
-                        annotated_image = draw_bounding_boxes(annotated_image, objects, color_map)
-                        annotated_image = draw_label_counts(annotated_image, label_counts, color_map)
-                        
-                        for cls, exp_count in expected_counts.items():
-                            act_count = label_counts.get(cls, 0)
-                            diff = act_count - exp_count
-                            if diff != 0:
-                                differences[cls] = diff
-                        
-                        if differences:
-                            draw_error_info(annotated_image, list(differences.items()))
-                            annotated_image = highlight_extra_objects(annotated_image, objects, differences)
-
+                            annotated_image = frame.copy()
                     else:
                         annotated_image = frame.copy()
-                else:
-                    annotated_image = frame.copy()
 
-                # 결과 이미지 저장
-                if differences:
-                    yolo_folder = 'Yolo_defects'
-                else:
-                    yolo_folder = 'Yolo'
-                if not os.path.exists(yolo_folder):
-                    os.makedirs(yolo_folder)
-                annotated_image_path = os.path.join(yolo_folder, f"{timestamp}_annotated.jpg")
-                cv2.imwrite(annotated_image_path, annotated_image)
+                    # 결과 이미지 저장
+                    if differences:
+                        yolo_folder = 'Yolo_defects'
+                    else:
+                        yolo_folder = 'Yolo'
+                    if not os.path.exists(yolo_folder):
+                        os.makedirs(yolo_folder)
+                    annotated_image_path = os.path.join(yolo_folder, f"{timestamp}_annotated.jpg")
+                    cv2.imwrite(annotated_image_path, annotated_image)
 
-                state = 'freeze'
-                freeze_count = FREEZE_FRAMES
-                ser.write(b"1")
-                time.sleep(0.1)
+                    state = 'freeze'
+                    freeze_count = FREEZE_FRAMES
+                    ser.write(b"1")
+                    time.sleep(0.1)
 
-            yield frame
+                yield frame
 
-        elif state == 'freeze':
-            # freeze 상태에서 annotated_image 표시
-            display_image = annotated_image.copy() if annotated_image is not None else None
-            if display_image is not None:
-                max_width = 800
-                max_height = 600
-                height, width = display_image.shape[:2]
-                if width > max_width or height > max_height:
-                    scaling_factor = min(max_width / width, max_height / height)
-                    display_image = cv2.resize(display_image, None, fx=scaling_factor, fy=scaling_factor, interpolation=cv2.INTER_AREA)
+            elif state == 'freeze':
+                display_image = annotated_image.copy() if annotated_image is not None else None
+                if display_image is not None:
+                    max_width = 800
+                    max_height = 600
+                    height, width = display_image.shape[:2]
+                    if width > max_width or height > max_height:
+                        scaling_factor = min(max_width / width, max_height / height)
+                        display_image = cv2.resize(display_image, None, fx=scaling_factor, fy=scaling_factor, interpolation=cv2.INTER_AREA)
+                    yield display_image
 
-                yield display_image
+                freeze_count -= 1
 
-            freeze_count -= 1
+                if ser.in_waiting > 0:
+                    data = ser.read()
+                    if data == b"0":
+                        now = time.time()
+                        if now - last_b0_time > B0_DEBOUNCE_TIME:
+                            last_b0_time = now
+                            state = 'pending'
+                            delay_count = CAPTURE_DELAY_FRAMES
+                            time.sleep(0.1)
+                            continue
 
-            if ser.in_waiting > 0:
-                data = ser.read()
-                if data == b"0":
-                    now = time.time()
-                    if now - last_b0_time > B0_DEBOUNCE_TIME:
-                        last_b0_time = now
-                        state = 'pending'
-                        delay_count = CAPTURE_DELAY_FRAMES
-                        time.sleep(0.1)
-                        continue
+                if freeze_count <= 0:
+                    state = 'normal'
+                    time.sleep(0.1)
 
-            if freeze_count <= 0:
-                state = 'normal'
-                time.sleep(0.1)
-
-        else:
-            break
-
-def start_system():
-    global stop_flag
-    stop_flag = False
-    return run_conveyor_system()
+            else:
+                break
+    finally:
+        # 루프 종료 시 카메라 리소스 해제
+        cam.release()
 
 def stop_system():
     global stop_flag
     stop_flag = True
-    return None
 
-#######################
-# Gradio UI 구성
-#######################
-
-with gr.Blocks(theme="soft") as demo:
+# Gradio 인터페이스 구성
+with gr.Blocks() as demo:
     gr.Markdown("# Conveyor System Inspection\n")
-    gr.Markdown("이 페이지에서 Start 버튼을 누르면 컨베이어 시스템을 작동시켜 실시간 영상과 YOLO 분석결과를 확인할 수 있습니다. Stop 버튼으로 종료할 수 있습니다.")
+    gr.Markdown("이 페이지에서 **Start** 버튼을 누르면 컨베이어 시스템을 작동시켜 실시간 영상과 YOLO 분석결과를 확인할 수 있습니다. **Stop** 버튼으로 종료할 수 있습니다.")
+    gr.Markdown("**Start**를 누르기 전까지 시스템은 가동되지 않습니다.")
 
     with gr.Row():
         start_btn = gr.Button("Start")
         stop_btn = gr.Button("Stop")
 
-    image_output = gr.Image(label="Real-Time Conveyor Feed", type="numpy").style(height=480)
-    gr.Markdown("## Logs")
-    log_output = gr.Textbox(label="System Logs", interactive=False)
+    image_output = gr.Image(label="Real-Time Conveyor Feed", type="numpy", height=480)
 
-    # Start 버튼 클릭 시 run_conveyor_system를 호출하여 이미지 스트림
-    start_btn.click(fn=start_system, inputs=[], outputs=image_output, api_name="start_conveyor", queue=True)
-    # Stop 버튼 클릭 시 stop_system을 호출하여 스트림 종료
-    stop_btn.click(fn=stop_system, inputs=[], outputs=image_output, api_name="stop_conveyor")
-
+    # start 버튼 클릭 시 run_conveyor_system 제너레이터를 스트림으로 처리
+    start_btn.click(fn=run_conveyor_system, inputs=[], outputs=image_output, api_name="start_conveyor", stream=True, queue=True)
+    # stop 버튼 클릭 시 시스템 중지
+    stop_btn.click(fn=stop_system, inputs=[], outputs=[])
 
 demo.launch(server_name="0.0.0.0", server_port=7860, debug=True)
