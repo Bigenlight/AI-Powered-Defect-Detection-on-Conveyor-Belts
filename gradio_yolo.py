@@ -11,9 +11,6 @@ from requests.auth import HTTPBasicAuth
 import json
 import gradio as gr
 
-# ==============================
-# Parameters
-# ==============================
 CAPTURE_DELAY_FRAMES = 2
 FREEZE_FRAMES = 15
 B0_DEBOUNCE_TIME = 0.3
@@ -125,9 +122,14 @@ def crop_img(img, size_dict):
     y = size_dict["y"]
     w = size_dict["width"]
     h = size_dict["height"]
+    # img 크기 체크
+    if img is None or img.size == 0 or y+h > img.shape[0] or x+w > img.shape[1]:
+        return img
     return img[y : y + h, x : x + w]
 
 def inference_request(img: np.array, api_url: str):
+    if img is None or img.size == 0:
+        return None
     _, img_encoded = cv2.imencode(".jpg", img)
     img_bytes = img_encoded.tobytes()
     try:
@@ -212,18 +214,23 @@ def run_conveyor_system():
         while not stop_flag:
             if state == 'normal':
                 ret, live_frame = cam.read()
-                if not ret:
+                if not ret or live_frame is None or live_frame.size == 0:
                     break
 
-                # 이미지 크기 축소 (예: 원본의 절반 크기로)
+                # 이미지 처리 전 유효성 검사
+                if live_frame is None or live_frame.size == 0:
+                    continue  # 다음 프레임 시도
+
+                # 원하는 해상도로 리사이즈 (너무 크면 메모리 문제)
                 height, width = live_frame.shape[:2]
                 live_frame = cv2.resize(live_frame, (width//2, height//2), interpolation=cv2.INTER_AREA)
-
                 live_frame = cv2.filter2D(live_frame, -1, sharpening_kernel)
+
                 if crop_info is not None:
-                    # crop 범위도 축소된 이미지에 맞추어 수정 필요할 수 있음
-                    # 여기서는 그대로 사용. 실제 환경에 맞게 수정 필요.
-                    live_frame = crop_img(live_frame, crop_info)
+                    cropped = crop_img(live_frame, crop_info)
+                    if cropped is not None and cropped.size != 0:
+                        live_frame = cropped
+                    # else: 그대로 사용하거나 continue로 넘어갈 수도 있음
 
                 if ser.in_waiting > 0:
                     data = ser.read()
@@ -234,22 +241,26 @@ def run_conveyor_system():
                             state = 'pending'
                             delay_count = CAPTURE_DELAY_FRAMES
                             time.sleep(0.1)
-                yield live_frame
+
+                # 유효한 이미지인지 확인 후 yield
+                if live_frame is not None and live_frame.size != 0:
+                    yield live_frame
 
             elif state == 'pending':
                 ret, frame = cam.read()
-                if not ret:
+                if not ret or frame is None or frame.size == 0:
                     break
 
                 height, width = frame.shape[:2]
                 frame = cv2.resize(frame, (width//2, height//2), interpolation=cv2.INTER_AREA)
-
                 frame = cv2.filter2D(frame, -1, sharpening_kernel)
                 if crop_info is not None:
-                    frame = crop_img(frame, crop_info)
+                    cropped = crop_img(frame, crop_info)
+                    if cropped is not None and cropped.size != 0:
+                        frame = cropped
 
                 delay_count -= 1
-                if delay_count <= 0:
+                if delay_count <= 0 and frame is not None and frame.size != 0:
                     original_folder = 'original'
                     if not os.path.exists(original_folder):
                         os.makedirs(original_folder)
@@ -306,14 +317,13 @@ def run_conveyor_system():
                     freeze_count = FREEZE_FRAMES
                     ser.write(b"1")
                     time.sleep(0.1)
-                yield frame
+
+                if frame is not None and frame.size != 0:
+                    yield frame
 
             elif state == 'freeze':
-                display_image = annotated_image.copy() if annotated_image is not None else None
-                if display_image is not None:
-                    # 이미 줄인 이미지가 annotated_image일 경우 추가로 축소 필요 없을 수 있음
-                    # 필요에 따라 추가 축소
-                    yield display_image
+                if annotated_image is not None and annotated_image.size != 0:
+                    yield annotated_image
 
                 freeze_count -= 1
 
@@ -348,7 +358,8 @@ with gr.Blocks() as demo:
         start_btn = gr.Button("Start")
         stop_btn = gr.Button("Stop")
 
-    # format="jpeg" 지정으로 메모리 사용 감소 시도
+    # 빈 이미지 방지를 위해 format="jpeg" 유지. 
+    # 혹시 문제 지속 시 format="png"로 변경 시도.
     image_output = gr.Image(label="Real-Time Conveyor Feed", type="numpy", format="jpeg", height=480)
 
     start_btn.click(fn=run_conveyor_system, inputs=[], outputs=image_output, queue=True)
