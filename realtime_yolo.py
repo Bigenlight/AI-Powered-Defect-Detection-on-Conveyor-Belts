@@ -29,12 +29,12 @@ expected_counts = {
 
 # 클래스별 점수 기준값 설정
 class_thresholds = {
-    'BOOTSEL': 0.96,
+    'BOOTSEL': 0.95,
     'USB': 0.96,
     'CHIPSET': 0.94,
     'OSCILLATOR': 0.94,
     'RASPBERRY PICO': 0.97,
-    'HOLE': 0.85
+    'HOLE': 0.80
 }
 
 # 시리얼 포트 설정
@@ -46,11 +46,10 @@ AUTH_USERNAME = "kdt2024_1-27"
 api_url = "https://suite-endpoint-api-apne2.superb-ai.com/endpoints/8c223a14-5aaa-40b4-ad75-b1b96ffb4ab3/inference"
 headers = {"Content-Type": "image/jpg"}
 
-# 색상 목록 (BGR 형식)
 COLOR_LIST = [
-    (0, 0, 0),
+    (255, 0, 0),
     (50, 205, 0),
-    (0, 0, 255),
+    (0, 0, 0),
     (225, 205, 0),
     (255, 0, 255),
     (128, 0, 0),
@@ -75,8 +74,8 @@ def draw_bounding_boxes(image, objects, color_map):
     for obj in objects:
         cls = obj.get('class', 'N/A')
         score = obj.get('score', 0)
+        valid = obj.get('valid', True)  # threshold 이상 여부
         box = obj.get('box', [])
-        valid = obj.get('valid', True)  # 유효성 여부 확인
         if len(box) != 4:
             print(f"Invalid box format for object {obj}")
             continue
@@ -87,9 +86,11 @@ def draw_bounding_boxes(image, objects, color_map):
             continue
 
         if valid:
+            # threshold 충족: 클래스별 색상
             color = get_color_for_class(cls, color_map)
         else:
-            color = (0, 0, 255)  # 유효하지 않은 객체는 빨간색
+            # threshold 미충족: 빨간색 표시
+            color = (0,0,255)
 
         cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
 
@@ -105,6 +106,7 @@ def draw_bounding_boxes(image, objects, color_map):
         label_bg_y1 = max(label_bg_y1, 0)
         label_bg_x2 = min(label_bg_x2, image.shape[1])
         cv2.rectangle(image, (label_bg_x1, label_bg_y1), (label_bg_x2, label_bg_y2), color, thickness=cv2.FILLED)
+
         brightness = sum(color)
         text_color = (0, 0, 0) if brightness > 600 else (255, 255, 255)
         cv2.putText(image, label, (label_bg_x1, label_bg_y2 - baseline), font, font_scale, text_color, thickness, cv2.LINE_AA)
@@ -124,7 +126,7 @@ def draw_label_counts(image, label_counts, color_map):
         text = f"{label}: {count}"
         color = get_color_for_class(label, color_map)
         (tw, th), baseline = cv2.getTextSize(text, font, font_scale, thickness)
-        cv2.rectangle(image, (x - 5, y - text_height - 5), (x + text_width + 5, y + 5), color, cv2.FILLED)
+        cv2.rectangle(image, (x - 5, y - th - 5), (x + tw + 5, y + 5), color, cv2.FILLED)
         brightness = sum(color)
         text_color = (0, 0, 0) if brightness > 600 else (255, 255, 255)
         cv2.putText(image, text, (x, y), font, font_scale, text_color, thickness, cv2.LINE_AA)
@@ -292,34 +294,39 @@ try:
                     print("YOLO Inference Result:")
                     pprint(result)
                     raw_objects = result.get('objects', [])
-                    # 클래스별 threshold 기반 필터링
+                    # 모든 객체를 표시, threshold에 따라 valid 여부 설정
                     for obj in raw_objects:
                         cls = obj.get('class', 'N/A')
                         score = obj.get('score', 0)
-                        threshold = class_thresholds.get(cls, 0.5)  # 없으면 기본 0.5
+                        threshold = class_thresholds.get(cls, 0.5) # 없으면 기본 0.5
                         if score >= threshold:
+                            # threshold 이상인 경우 valid = True
                             obj['valid'] = True
-                            objects.append(obj)
                             label_counts[cls] += 1
                         else:
+                            # threshold 이하인 경우 valid = False, red로 표시
                             obj['valid'] = False
-                            objects.append(obj)
+                        objects.append(obj)
 
-                    if label_counts:
-                        print(f"Number of objects detected after threshold filtering: {len(label_counts)}")
+                    if objects:
+                        print(f"Total objects detected: {len(objects)} (valid + invalid)")
+                        print(f"Valid objects count: {sum(label_counts.values())}")
                         annotated_image = draw_bounding_boxes(frame.copy(), objects, color_map)
                         annotated_image = draw_label_counts(annotated_image, label_counts, color_map)
+
+                        # valid 객체만 가지고 differences 계산
                         for cls, exp_count in expected_counts.items():
                             act_count = label_counts.get(cls, 0)
                             diff = act_count - exp_count
                             if diff != 0:
                                 differences[cls] = diff
+
                         if differences:
                             draw_error_info(annotated_image, list(differences.items()))
                             annotated_image = highlight_extra_objects(annotated_image, objects, differences)
                         print(f"annotated_image shape: {annotated_image.shape}")
                     else:
-                        print("No objects detected after threshold filtering.")
+                        print("No objects detected at all.")
                         annotated_image = frame.copy()
                 else:
                     print("Failed to get inference result.")
