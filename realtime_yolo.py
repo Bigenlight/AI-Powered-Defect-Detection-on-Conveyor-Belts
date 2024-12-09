@@ -28,14 +28,21 @@ expected_counts = {
 }
 
 # 클래스별 점수 기준값 설정
-#class_thresholds = {
-#    'BOOTSEL': 0.97,
-#    'USB': 0.96,
-#    'CHIPSET': 0.8,
-#    'OSCILLATOR': 0.8,
-#    'RASPBERRY PICO': 0.8,
-#    'HOLE': 0.7
-#}
+class_thresholds = {
+    'BOOTSEL': 0.97,
+    'USB': 0.96,
+    'CHIPSET': 0.8,
+    'OSCILLATOR': 0.8,
+    'RASPBERRY PICO': 0.8,
+    'HOLE': 0.7
+    #'BOOTSEL': 0.5,
+    #'USB': 0.5,
+    #'CHIPSET': 0.5,
+    #'OSCILLATOR': 0.5,
+    #'RASPBERRY PICO': 0.5,
+    #'HOLE': 0.5
+}
+}
 
 # 시리얼 포트 설정
 ser = serial.Serial("/dev/ttyACM0", 9600, timeout=1)
