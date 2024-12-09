@@ -60,7 +60,6 @@ COLOR_LIST = [
 color_map = {}
 
 def get_color_for_class(cls, color_map):
-    """클래스별 고유 색상 할당"""
     if cls not in color_map:
         if len(color_map) < len(COLOR_LIST):
             color_map[cls] = COLOR_LIST[len(color_map)]
@@ -69,7 +68,6 @@ def get_color_for_class(cls, color_map):
     return color_map[cls]
 
 def draw_bounding_boxes(image, objects, color_map):
-    """바운딩 박스와 레이블 그리기"""
     for obj in objects:
         cls = obj.get('class', 'N/A')
         score = obj.get('score', 0)
@@ -107,7 +105,6 @@ def draw_bounding_boxes(image, objects, color_map):
     return image
 
 def draw_label_counts(image, label_counts, color_map):
-    """레이블 개수를 이미지 좌상단에 표시"""
     x = 10
     y = 20
     font = cv2.FONT_HERSHEY_SIMPLEX
@@ -154,7 +151,6 @@ def inference_request(img: np.array, api_url: str):
         return None
 
 def draw_error_info(image, differences):
-    """에러 정보를 이미지에 그리기"""
     cv2.rectangle(image, (0,0), (image.shape[1]-1, image.shape[0]-1), (0,0,255), 5)
     font = cv2.FONT_HERSHEY_SIMPLEX
     font_scale = 0.8
@@ -174,7 +170,6 @@ def draw_error_info(image, differences):
         y -= (th + 10)
 
 def highlight_extra_objects(image, objects, differences):
-    """초과된 객체들을 반투명 노랑 박스로 하이라이트"""
     from operator import itemgetter
     over_classes = {cls: diff for cls, diff in differences.items() if diff > 0}
     if not over_classes:
@@ -209,15 +204,13 @@ annotated_image = None
 objects = []
 last_b0_time = 0.0
 crop_info = {"x": 870, "y": 110, "width": 600, "height": 530}
-stop_flag = True  # 초기에는 True로 두어 동작하지 않도록 함
+stop_flag = True
 
 def run_conveyor_system():
     global state, delay_count, freeze_count, annotated_image, objects, last_b0_time, stop_flag
 
-    # Start 버튼을 눌렀으므로 stop_flag를 False로 전환
     stop_flag = False
 
-    # 여기서 카메라 오픈 (Start 누르기 전에는 오픈 안 함)
     cam = cv2.VideoCapture(0)
     if not cam.isOpened():
         raise RuntimeError("Camera Error: Cannot open camera.")
@@ -253,7 +246,6 @@ def run_conveyor_system():
 
                 delay_count -= 1
                 if delay_count <= 0:
-                    # 이미지 저장
                     original_folder = 'original'
                     if not os.path.exists(original_folder):
                         os.makedirs(original_folder)
@@ -297,7 +289,6 @@ def run_conveyor_system():
                     else:
                         annotated_image = frame.copy()
 
-                    # 결과 이미지 저장
                     if differences:
                         yolo_folder = 'Yolo_defects'
                     else:
@@ -311,7 +302,6 @@ def run_conveyor_system():
                     freeze_count = FREEZE_FRAMES
                     ser.write(b"1")
                     time.sleep(0.1)
-
                 yield frame
 
             elif state == 'freeze':
@@ -345,14 +335,12 @@ def run_conveyor_system():
             else:
                 break
     finally:
-        # 루프 종료 시 카메라 리소스 해제
         cam.release()
 
 def stop_system():
     global stop_flag
     stop_flag = True
 
-# Gradio 인터페이스 구성
 with gr.Blocks() as demo:
     gr.Markdown("# Conveyor System Inspection\n")
     gr.Markdown("이 페이지에서 **Start** 버튼을 누르면 컨베이어 시스템을 작동시켜 실시간 영상과 YOLO 분석결과를 확인할 수 있습니다. **Stop** 버튼으로 종료할 수 있습니다.")
@@ -364,9 +352,8 @@ with gr.Blocks() as demo:
 
     image_output = gr.Image(label="Real-Time Conveyor Feed", type="numpy", height=480)
 
-    # start 버튼 클릭 시 run_conveyor_system 제너레이터를 스트림으로 처리
-    start_btn.click(fn=run_conveyor_system, inputs=[], outputs=image_output, api_name="start_conveyor", stream=True, queue=True)
-    # stop 버튼 클릭 시 시스템 중지
+    # stream=True 제거
+    start_btn.click(fn=run_conveyor_system, inputs=[], outputs=image_output, api_name="start_conveyor", queue=True)
     stop_btn.click(fn=stop_system, inputs=[], outputs=[])
 
 demo.launch(server_name="0.0.0.0", server_port=7860, debug=True)
