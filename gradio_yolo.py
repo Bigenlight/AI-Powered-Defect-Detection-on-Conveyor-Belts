@@ -44,7 +44,6 @@ ser = serial.Serial("/dev/ttyACM0", 9600, timeout=1)
 ACCESS_KEY = "ezeJWt9iFMaP7HGvwYgds6Za1Sb35fwHaPZF89mi"
 AUTH_USERNAME = "kdt2024_1-27"
 api_url = "https://suite-endpoint-api-apne2.superb-ai.com/endpoints/8c223a14-5aaa-40b4-ad75-b1b96ffb4ab3/inference"
-headers = {"Content-Type": "image/jpg"}
 
 COLOR_LIST = [
     (255, 0, 0),
@@ -208,7 +207,6 @@ sharpening_kernel = np.array([[0, -1, 0],
 cam = cv2.VideoCapture(0)
 if not cam.isOpened():
     print("Camera Error")
-    # exit(-1) # 실제 환경에서는 처리 필요
 
 state = 'normal'
 delay_count = 0
@@ -218,26 +216,38 @@ objects = []
 last_b0_time = 0.0
 crop_info = {"x": 870, "y": 110, "width": 600, "height": 530}
 
-# --------------------------
-# 여기서부터 Gradio와 Thread를 통한 동작 제어 추가
-# --------------------------
-
-running = False  # START 버튼 누르기 전까지 False
+running = False  # START 버튼 클릭 전까지 False
 loop_thread = None
 
-def run_process():
-    global running, state, delay_count, freeze_count, annotated_image, objects, last_b0_time
-    while running:
-        if state == 'normal':
-            ret, live_frame = cam.read()
-            if not ret:
-                print("Failed to read frame from camera")
-                break
-            
-            live_frame = cv2.filter2D(live_frame, -1, sharpening_kernel)
-            if crop_info is not None:
-                live_frame = crop_img(live_frame, crop_info)
+latest_frame = None
+stop_capture = False
 
+# 카메라로부터 계속 프레임을 읽어 latest_frame에 저장하는 스레드
+def capture_frames():
+    global latest_frame, stop_capture
+    while not stop_capture:
+        ret, frame = cam.read()
+        if ret:
+            # 샤프닝 적용
+            frame = cv2.filter2D(frame, -1, sharpening_kernel)
+            # 크롭 적용
+            if crop_info is not None:
+                frame = crop_img(frame, crop_info)
+            latest_frame = frame
+        else:
+            time.sleep(0.01)
+
+# 메인 프로세스 루프
+def run_process():
+    global running, state, delay_count, freeze_count, annotated_image, objects, last_b0_time, latest_frame
+    while running:
+        if latest_frame is None:
+            # 아직 카메라 프레임이 들어오지 않았다면 잠시 대기
+            time.sleep(0.1)
+            continue
+
+        if state == 'normal':
+            # normal 상태에서는 b"0" 신호 대기
             if ser.in_waiting > 0:
                 data = ser.read()
                 print(f"Received data: {data}")
@@ -252,23 +262,12 @@ def run_process():
                     else:
                         print("b'0' ignored due to debounce.")
 
-            # 여기서는 Gradio를 통해 이미지 출력을 별도로 하지 않고 콘솔 상에서만 확인.
-            # 필요한 경우, 웹 UI 업데이트를 위해 global 변수를 수정하는 로직 추가 가능.
-
         elif state == 'pending':
-            ret, frame = cam.read()
-            if not ret:
-                print("Failed to read frame from camera")
-                break
-            
-            frame = cv2.filter2D(frame, -1, sharpening_kernel)
-            if crop_info is not None:
-                frame = crop_img(frame, crop_info)
-
             delay_count -= 1
             print(f"'pending' state: {delay_count} frames remaining before capture.")
 
             if delay_count <= 0:
+                frame = latest_frame.copy()
                 original_folder = 'original'
                 if not os.path.exists(original_folder):
                     os.makedirs(original_folder)
@@ -357,7 +356,6 @@ def run_process():
             print("Unexpected state encountered.")
             break
 
-        # running이 False가 되면 루프 종료
     print("Loop ended.")
 
 def start_process():
@@ -374,13 +372,30 @@ def stop_process():
     running = False
     return "Process stopped"
 
+def get_frame():
+    # 실시간 영상 표시를 위해 latest_frame 반환
+    # latest_frame를 RGB로 변환 후 반환
+    global latest_frame
+    if latest_frame is not None:
+        frame_rgb = cv2.cvtColor(latest_frame, cv2.COLOR_BGR2RGB)
+        return frame_rgb
+    return None
+
+# 카메라 캡처 쓰레드 시작
+capture_thread = threading.Thread(target=capture_frames, daemon=True)
+capture_thread.start()
+
 with gr.Blocks() as demo:
-    gr.Markdown("# Conveyor & YOLO Detection Control\n")
+    gr.Markdown("# Conveyor & YOLO Detection Control\n실시간 영상 스트리밍 & START 버튼으로 프로세스 시작")
     start_btn = gr.Button("START")
     stop_btn = gr.Button("STOP")
     status = gr.Textbox(label="Status")
+    live_image = gr.Image(label="Live Feed")
 
     start_btn.click(start_process, inputs=[], outputs=status)
     stop_btn.click(stop_process, inputs=[], outputs=status)
+
+    # every=0.1초 마다 get_frame 호출하여 live_image 업데이트
+    demo.load(get_frame, inputs=[], outputs=live_image, every=0.1)
 
 demo.launch(share=True)
