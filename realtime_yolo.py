@@ -29,7 +29,7 @@ expected_counts = {
 
 # 클래스별 점수 기준값 설정
 class_thresholds = {
-    'BOOTSEL': 0.96,
+    'BOOTSEL': 0.97,
     'USB': 0.96,
     'CHIPSET': 0.8,
     'OSCILLATOR': 0.8,
