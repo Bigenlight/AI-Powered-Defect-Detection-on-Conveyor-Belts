@@ -10,7 +10,7 @@ from collections import Counter
 INPUT_FOLDER = "/home/rokey/Downloads/after_sharpened_2" #이거가 너가 원하는 폴더
 OUTPUT_FOLDER = "/home/rokey/Downloads/result_YoloV6/"
 URL = "https://suite-endpoint-api-apne2.superb-ai.com/endpoints/8f81f503-b7c6-4220-8ad3-9e54ff2729c7/inference"
-ACCESS_KEY = "ezeJWt9iFMaP7HGvwYgds6Za1Sb35fwHaPZF89mi"
+ACCESS_KEY = " ... "
 AUTH_USERNAME = "kdt2024_1-27"
 IMAGE_EXTENSION = ".jpg"  # Supported image extension
 # -------------------------------------------------------
