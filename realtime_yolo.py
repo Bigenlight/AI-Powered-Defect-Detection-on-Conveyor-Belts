@@ -41,7 +41,7 @@ class_thresholds = {
 ser = serial.Serial("/dev/ttyACM0", 9600, timeout=1)
 
 # YOLO API 설정
-ACCESS_KEY = "ezeJWt9iFMaP7HGvwYgds6Za1Sb35fwHaPZF89mi"
+ACCESS_KEY = " ... "
 AUTH_USERNAME = "kdt2024_1-27"
 api_url = "https://suite-endpoint-api-apne2.superb-ai.com/endpoints/8c223a14-5aaa-40b4-ad75-b1b96ffb4ab3/inference"
 headers = {"Content-Type": "image/jpg"}
