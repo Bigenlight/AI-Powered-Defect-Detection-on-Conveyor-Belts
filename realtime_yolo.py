@@ -29,7 +29,7 @@ expected_counts = {
 
 # 클래스별 점수 기준값 설정
 class_thresholds = {
-    'BOOTSEL': 0.97,
+    'BOOTSEL': 0.96,
     'USB': 0.96,
     'CHIPSET': 0.95,
     'OSCILLATOR': 0.94,
@@ -43,7 +43,7 @@ ser = serial.Serial("/dev/ttyACM0", 9600, timeout=1)
 # YOLO API 설정
 ACCESS_KEY = "ezeJWt9iFMaP7HGvwYgds6Za1Sb35fwHaPZF89mi"
 AUTH_USERNAME = "kdt2024_1-27"
-api_url = "https://suite-endpoint-api-apne2.superb-ai.com/endpoints/8c223a14-5aaa-40b4-ad75-b1b96ffb4ab3/inference"
+api_url = "https://suite-endpoint-api-apne2.superb-ai.com/endpoints/faa83b05-e622-47ab-a234-5f5110cf9c86/inference"
 headers = {"Content-Type": "image/jpg"}
 
 # 색상 목록 (BGR 형식)
