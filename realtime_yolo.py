@@ -34,7 +34,7 @@ ser = serial.Serial("/dev/ttyACM0", 9600, timeout=1)
 ACCESS_KEY = "ezeJWt9iFMaP7HGvwYgds6Za1Sb35fwHaPZF89mi"
 AUTH_USERNAME = "kdt2024_1-27"
 headers = {"Content-Type": "image/jpg"}
-api_url = "https://suite-endpoint-api-apne2.superb-ai.com/endpoints/8f81f503-b7c6-4220-8ad3-9e54ff2729c7/inference"
+api_url = "https://suite-endpoint-api-apne2.superb-ai.com/endpoints/8c223a14-5aaa-40b4-ad75-b1b96ffb4ab3/inference"
 
 COLOR_LIST = [
     (255, 0, 0),
