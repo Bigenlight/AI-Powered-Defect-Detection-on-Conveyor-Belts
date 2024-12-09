@@ -16,9 +16,9 @@ import threading
 # ==============================
 # Parameters
 # ==============================
-CAPTURE_DELAY_FRAMES = 2  # 'data == b"0"' 후 대기 프레임
-FREEZE_FRAMES = 15        # YOLO 결과 표시 프레임 수
-B0_DEBOUNCE_TIME = 0.3    # b"0" 신호 디바운싱 시간 (초)
+CAPTURE_DELAY_FRAMES = 2
+FREEZE_FRAMES = 15
+B0_DEBOUNCE_TIME = 0.3
 
 expected_counts = {
     'BOOTSEL': 1,
@@ -38,7 +38,6 @@ class_thresholds = {
     'HOLE': 0.80
 }
 
-# 시리얼 포트 설정
 ser = serial.Serial("/dev/ttyACM0", 9600, timeout=1)
 
 ACCESS_KEY = "ezeJWt9iFMaP7HGvwYgds6Za1Sb35fwHaPZF89mi"
@@ -71,7 +70,7 @@ def draw_bounding_boxes(image, objects, color_map):
     for obj in objects:
         cls = obj.get('class', 'N/A')
         score = obj.get('score', 0)
-        valid = obj.get('valid', True)  # threshold 이상 여부
+        valid = obj.get('valid', True)
         box = obj.get('box', [])
         if len(box) != 4:
             continue
@@ -80,10 +79,7 @@ def draw_bounding_boxes(image, objects, color_map):
         except ValueError:
             continue
 
-        if valid:
-            color = get_color_for_class(cls, color_map)
-        else:
-            color = (0,0,255)
+        color = get_color_for_class(cls, color_map) if valid else (0,0,255)
 
         cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
 
@@ -101,7 +97,7 @@ def draw_bounding_boxes(image, objects, color_map):
         cv2.rectangle(image, (label_bg_x1, label_bg_y1), (label_bg_x2, label_bg_y2), color, cv2.FILLED)
 
         brightness = sum(color)
-        text_color = (0, 0, 0) if brightness > 600 else (255, 255, 255)
+        text_color = (0,0,0) if brightness > 600 else (255,255,255)
         cv2.putText(image, label, (label_bg_x1, label_bg_y2 - baseline), font, font_scale, text_color, thickness, cv2.LINE_AA)
     return image
 
@@ -120,7 +116,7 @@ def draw_label_counts(image, label_counts, color_map):
         (tw, th), baseline = cv2.getTextSize(text, font, font_scale, thickness)
         cv2.rectangle(image, (x - 5, y - th - 5), (x + tw + 5, y + 5), color, cv2.FILLED)
         brightness = sum(color)
-        text_color = (0, 0, 0) if brightness > 600 else (255, 255, 255)
+        text_color = (0, 0, 0) if brightness > 600 else (255,255,255)
         cv2.putText(image, text, (x, y), font, font_scale, text_color, thickness, cv2.LINE_AA)
         y += line_height
         if y > image.shape[0]:
@@ -145,9 +141,6 @@ def inference_request(img: np.array, api_url: str):
             data=img_bytes
         )
         if response.status_code == 200:
-            print("Image sent successfully")
-            print("Response JSON:")
-            pprint(response.json())
             return response.json()
         else:
             print(f"Failed to send image. Status code: {response.status_code}")
@@ -216,7 +209,7 @@ objects = []
 last_b0_time = 0.0
 crop_info = {"x": 870, "y": 110, "width": 600, "height": 530}
 
-running = False  # START 버튼 클릭 전까지 False
+running = False
 loop_thread = None
 
 latest_frame = None
@@ -244,21 +237,15 @@ def run_process():
         if state == 'normal':
             if ser.in_waiting > 0:
                 data = ser.read()
-                print(f"Received data: {data}")
                 if data == b"0":
                     now = time.time()
                     if now - last_b0_time > B0_DEBOUNCE_TIME:
                         last_b0_time = now
                         state = 'pending'
                         delay_count = CAPTURE_DELAY_FRAMES
-                        print(f"Switching to 'pending' state for {CAPTURE_DELAY_FRAMES} frames delay before capture.")
                         time.sleep(0.1)
-                    else:
-                        print("b'0' ignored due to debounce.")
-
         elif state == 'pending':
             delay_count -= 1
-            print(f"'pending' state: {delay_count} frames remaining before capture.")
             if delay_count <= 0:
                 frame = latest_frame.copy()
                 original_folder = 'original'
@@ -267,7 +254,6 @@ def run_process():
                 timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
                 original_image_path = os.path.join(original_folder, f"{timestamp}.jpg")
                 cv2.imwrite(original_image_path, frame)
-                print(f"Saved original image to {original_image_path}")
 
                 result = inference_request(frame, api_url)
                 label_counts = Counter()
@@ -279,53 +265,40 @@ def run_process():
                         cls = obj.get('class', 'N/A')
                         score = obj.get('score', 0)
                         threshold = class_thresholds.get(cls, 0.5)
-                        if score >= threshold:
-                            obj['valid'] = True
+                        obj['valid'] = (score >= threshold)
+                        if obj['valid']:
                             label_counts[cls] += 1
-                        else:
-                            obj['valid'] = False
                         objects.append(obj)
 
-                    if objects:
-                        annotated_image = draw_bounding_boxes(frame.copy(), objects, color_map)
-                        annotated_image = draw_label_counts(annotated_image, label_counts, color_map)
+                    annotated_image = frame.copy()
+                    annotated_image = draw_bounding_boxes(annotated_image, objects, color_map)
+                    annotated_image = draw_label_counts(annotated_image, label_counts, color_map)
 
-                        for cls, exp_count in expected_counts.items():
-                            act_count = label_counts.get(cls, 0)
-                            diff = act_count - exp_count
-                            if diff != 0:
-                                differences[cls] = diff
+                    for cls, exp_count in expected_counts.items():
+                        act_count = label_counts.get(cls, 0)
+                        diff = act_count - exp_count
+                        if diff != 0:
+                            differences[cls] = diff
 
-                        if differences:
-                            draw_error_info(annotated_image, list(differences.items()))
-                            annotated_image = highlight_extra_objects(annotated_image, objects, differences)
-                    else:
-                        print("No objects detected at all.")
-                        annotated_image = frame.copy()
+                    if differences:
+                        draw_error_info(annotated_image, list(differences.items()))
+                        annotated_image = highlight_extra_objects(annotated_image, objects, differences)
                 else:
-                    print("Failed to get inference result.")
                     annotated_image = frame.copy()
 
-                if differences:
-                    yolo_folder = 'Yolo_defects'
-                else:
-                    yolo_folder = 'Yolo'
-
+                yolo_folder = 'Yolo_defects' if differences else 'Yolo'
                 if not os.path.exists(yolo_folder):
                     os.makedirs(yolo_folder)
                 annotated_image_path = os.path.join(yolo_folder, f"{timestamp}_annotated.jpg")
                 cv2.imwrite(annotated_image_path, annotated_image)
-                print(f"Annotated image saved to {annotated_image_path}")
 
                 state = 'freeze'
                 freeze_count = FREEZE_FRAMES
                 ser.write(b"1")
-                print(f"Switching to 'freeze' state for {FREEZE_FRAMES} frames and sent '1' to Arduino.")
                 time.sleep(0.1)
 
         elif state == 'freeze':
             freeze_count -= 1
-            print(f"'freeze' state: {freeze_count} frames remaining.")
             if ser.in_waiting > 0:
                 data = ser.read()
                 if data == b"0":
@@ -334,18 +307,12 @@ def run_process():
                         last_b0_time = now
                         state = 'pending'
                         delay_count = CAPTURE_DELAY_FRAMES
-                        print(f"Received b'0' in freeze state, switching to 'pending' state.")
                         time.sleep(0.1)
                         continue
-                    else:
-                        print("b'0' in freeze ignored due to debounce.")
-            
             if freeze_count <= 0:
                 state = 'normal'
-                print("Freeze ended, switching back to 'normal' state.")
                 time.sleep(0.1)
         else:
-            print("Unexpected state encountered.")
             break
     print("Loop ended.")
 
@@ -354,7 +321,7 @@ def start_process():
     if running:
         return "Already running"
     running = True
-    state = 'normal'  # 시작 시 normal 상태
+    state = 'normal'
     loop_thread = threading.Thread(target=run_process, daemon=True)
     loop_thread.start()
     return "Process started"
@@ -365,29 +332,27 @@ def stop_process():
     return "Process stopped"
 
 def get_frame():
-    global latest_frame
-    if latest_frame is not None:
-        frame_rgb = cv2.cvtColor(latest_frame, cv2.COLOR_BGR2RGB)
-        return frame_rgb
-    return None
+    global latest_frame, running
+    if not running or latest_frame is None:
+        return None
+    frame_rgb = cv2.cvtColor(latest_frame, cv2.COLOR_BGR2RGB)
+    return frame_rgb
 
-# 카메라 캡처 쓰레드 시작
 capture_thread = threading.Thread(target=capture_frames, daemon=True)
 capture_thread.start()
 
+# 여기서는 gr.Interface를 이용해 live=True 활성화
+live_feed_interface = gr.Interface(fn=get_frame, inputs=[], outputs="image", live=True)
+
 with gr.Blocks() as demo:
-    gr.Markdown("# Conveyor & YOLO Detection Control\nSTART 버튼을 누르면 프로세스와 실시간 영상이 시작됩니다.")
+    gr.Markdown("# Conveyor & YOLO Detection Control\nSTART 버튼을 누르면 프로세스가 시작되며, 실시간 영상이 표시됩니다.")
     start_btn = gr.Button("START")
     stop_btn = gr.Button("STOP")
     status = gr.Textbox(label="Status")
-    live_image = gr.Image(label="Live Feed")
+    # live_feed_interface를 Blocks 내부에 렌더
+    live_component = gr.Row(live_feed_interface.render())
 
-    # Timer를 이용해 주기적으로 get_frame 호출
-    timer = gr.Timer(interval=0.1, fn=get_frame, outputs=live_image, running=False)
-
-    # START 버튼 누르면 프로세스 시작 후 타이머 실행
-    start_btn.click(fn=start_process, inputs=[], outputs=status).then(fn=lambda: True, outputs=timer)
-    # STOP 버튼 누르면 프로세스 종료 후 타이머 중지
-    stop_btn.click(fn=stop_process, inputs=[], outputs=status).then(fn=lambda: False, outputs=timer)
+    start_btn.click(fn=start_process, inputs=[], outputs=status)
+    stop_btn.click(fn=stop_process, inputs=[], outputs=status)
 
 demo.launch(share=True)
