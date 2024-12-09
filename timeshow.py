@@ -28,12 +28,13 @@ expected_counts = {
 
 class_thresholds = {
     'BOOTSEL': 0.95,
-    'USB': 0.95,
-    'CHIPSET': 0.94,
+    'USB': 0.94,
+    'CHIPSET': 0.90,
     'OSCILLATOR': 0.94,
     'RASPBERRY PICO': 0.97,
     'HOLE': 0.80
 }
+
 
 ser = serial.Serial("/dev/ttyACM0", 9600, timeout=1)
 
