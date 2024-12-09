@@ -16,7 +16,7 @@ import json
 # ==============================
 CAPTURE_DELAY_FRAMES = 2  # 'data == b"0"' 후 대기 프레임
 FREEZE_FRAMES = 15         # YOLO 결과 표시 프레임 수
-B0_DEBOUNCE_TIME = 0.5     # b"0" 신호 디바운싱 시간 (초)
+B0_DEBOUNCE_TIME = 0.3     # b"0" 신호 디바운싱 시간 (초)
 
 expected_counts = {
     'BOOTSEL': 1,
@@ -43,7 +43,7 @@ ser = serial.Serial("/dev/ttyACM0", 9600, timeout=1)
 # YOLO API 설정
 ACCESS_KEY = "ezeJWt9iFMaP7HGvwYgds6Za1Sb35fwHaPZF89mi"
 AUTH_USERNAME = "kdt2024_1-27"
-api_url = "https://suite-endpoint-api-apne2.superb-ai.com/endpoints/faa83b05-e622-47ab-a234-5f5110cf9c86/inference"
+api_url = "https://suite-endpoint-api-apne2.superb-ai.com/endpoints/8c223a14-5aaa-40b4-ad75-b1b96ffb4ab3/inference"
 headers = {"Content-Type": "image/jpg"}
 
 # 색상 목록 (BGR 형식)
