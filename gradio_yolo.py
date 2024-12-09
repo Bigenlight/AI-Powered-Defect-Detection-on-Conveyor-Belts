@@ -11,10 +11,15 @@ import datetime
 from requests.auth import HTTPBasicAuth
 import json
 import gradio as gr
+import threading
 
 # ==============================
 # Parameters
 # ==============================
+CAPTURE_DELAY_FRAMES = 2  # 'data == b"0"' 후 대기 프레임
+FREEZE_FRAMES = 15         # YOLO 결과 표시 프레임 수
+B0_DEBOUNCE_TIME = 0.3     # b"0" 신호 디바운싱 시간 (초)
+
 expected_counts = {
     'BOOTSEL': 1,
     'USB': 1,
@@ -33,16 +38,13 @@ class_thresholds = {
     'HOLE': 0.80
 }
 
-# 카메라 초기화
-cam = cv2.VideoCapture(0)
-if not cam.isOpened():
-    print("Camera Error")
-    # 실제 카메라 없을 경우 코드 실행이 안될 수 있음
+# 시리얼 포트 설정
+ser = serial.Serial("/dev/ttyACM0", 9600, timeout=1)
 
-# YOLO API 설정 (사용자 인증정보 변경 필요)
 ACCESS_KEY = "ezeJWt9iFMaP7HGvwYgds6Za1Sb35fwHaPZF89mi"
 AUTH_USERNAME = "kdt2024_1-27"
 api_url = "https://suite-endpoint-api-apne2.superb-ai.com/endpoints/8c223a14-5aaa-40b4-ad75-b1b96ffb4ab3/inference"
+headers = {"Content-Type": "image/jpg"}
 
 COLOR_LIST = [
     (255, 0, 0),
@@ -58,14 +60,7 @@ COLOR_LIST = [
 
 color_map = {}
 
-crop_info = {"x": 870, "y": 110, "width": 600, "height": 530}
-
-sharpening_kernel = np.array([[0, -1, 0],
-                              [-1, 5, -1],
-                              [0, -1, 0]], dtype=np.float32)
-
 def get_color_for_class(cls, color_map):
-    """클래스별 고유 색상 할당"""
     if cls not in color_map:
         if len(color_map) < len(COLOR_LIST):
             color_map[cls] = COLOR_LIST[len(color_map)]
@@ -74,11 +69,10 @@ def get_color_for_class(cls, color_map):
     return color_map[cls]
 
 def draw_bounding_boxes(image, objects, color_map):
-    """바운딩 박스와 레이블 그리기"""
     for obj in objects:
         cls = obj.get('class', 'N/A')
         score = obj.get('score', 0)
-        valid = obj.get('valid', True)
+        valid = obj.get('valid', True)  # threshold 이상 여부
         box = obj.get('box', [])
         if len(box) != 4:
             continue
@@ -88,10 +82,8 @@ def draw_bounding_boxes(image, objects, color_map):
             continue
 
         if valid:
-            # threshold 충족: 클래스별 색상
             color = get_color_for_class(cls, color_map)
         else:
-            # threshold 미충족: 빨간색 표시
             color = (0,0,255)
 
         cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
@@ -115,7 +107,6 @@ def draw_bounding_boxes(image, objects, color_map):
     return image
 
 def draw_label_counts(image, label_counts, color_map):
-    """레이블 개수를 이미지에 표시"""
     x = 10
     y = 20
     font = cv2.FONT_HERSHEY_SIMPLEX
@@ -155,14 +146,19 @@ def inference_request(img: np.array, api_url: str):
             data=img_bytes
         )
         if response.status_code == 200:
+            print("Image sent successfully")
+            print("Response JSON:")
+            pprint(response.json())
             return response.json()
         else:
+            print(f"Failed to send image. Status code: {response.status_code}")
+            print(f"Response content: {response.text}")
             return None
     except requests.exceptions.RequestException as e:
+        print(f"Error sending request: {e}")
         return None
 
 def draw_error_info(image, differences):
-    """에러 정보를 이미지에 그리기"""
     cv2.rectangle(image, (0,0), (image.shape[1]-1, image.shape[0]-1), (0,0,255), 5)
     font = cv2.FONT_HERSHEY_SIMPLEX
     font_scale = 0.8
@@ -205,81 +201,186 @@ def highlight_extra_objects(image, objects, differences):
     cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0, image)
     return image
 
-def capture_and_infer():
-    if not cam.isOpened():
-        return "Camera not found.", None
-    
-    ret, frame = cam.read()
-    if not ret:
-        return "Failed to capture image", None
+sharpening_kernel = np.array([[0, -1, 0],
+                              [-1, 5, -1],
+                              [0, -1, 0]], dtype=np.float32)
 
-    # 샤프닝 적용
-    frame = cv2.filter2D(frame, -1, sharpening_kernel)
-    # 크롭 적용
-    if crop_info is not None:
-        frame = crop_img(frame, crop_info)
+cam = cv2.VideoCapture(0)
+if not cam.isOpened():
+    print("Camera Error")
+    # exit(-1) # 실제 환경에서는 처리 필요
 
-    # YOLO 추론
-    result = inference_request(frame, api_url)
-    if result is None:
-        return "Inference failed.", None
+state = 'normal'
+delay_count = 0
+freeze_count = 0
+annotated_image = None
+objects = []
+last_b0_time = 0.0
+crop_info = {"x": 870, "y": 110, "width": 600, "height": 530}
 
-    objects = []
-    label_counts = Counter()
-    differences = {}
-    raw_objects = result.get('objects', [])
+# --------------------------
+# 여기서부터 Gradio와 Thread를 통한 동작 제어 추가
+# --------------------------
 
-    # threshold 기반 valid 체크
-    for obj in raw_objects:
-        cls = obj.get('class', 'N/A')
-        score = obj.get('score', 0)
-        threshold = class_thresholds.get(cls, 0.5)
-        if score >= threshold:
-            obj['valid'] = True
-            label_counts[cls] += 1
+running = False  # START 버튼 누르기 전까지 False
+loop_thread = None
+
+def run_process():
+    global running, state, delay_count, freeze_count, annotated_image, objects, last_b0_time
+    while running:
+        if state == 'normal':
+            ret, live_frame = cam.read()
+            if not ret:
+                print("Failed to read frame from camera")
+                break
+            
+            live_frame = cv2.filter2D(live_frame, -1, sharpening_kernel)
+            if crop_info is not None:
+                live_frame = crop_img(live_frame, crop_info)
+
+            if ser.in_waiting > 0:
+                data = ser.read()
+                print(f"Received data: {data}")
+                if data == b"0":
+                    now = time.time()
+                    if now - last_b0_time > B0_DEBOUNCE_TIME:
+                        last_b0_time = now
+                        state = 'pending'
+                        delay_count = CAPTURE_DELAY_FRAMES
+                        print(f"Switching to 'pending' state for {CAPTURE_DELAY_FRAMES} frames delay before capture.")
+                        time.sleep(0.1)
+                    else:
+                        print("b'0' ignored due to debounce.")
+
+            # 여기서는 Gradio를 통해 이미지 출력을 별도로 하지 않고 콘솔 상에서만 확인.
+            # 필요한 경우, 웹 UI 업데이트를 위해 global 변수를 수정하는 로직 추가 가능.
+
+        elif state == 'pending':
+            ret, frame = cam.read()
+            if not ret:
+                print("Failed to read frame from camera")
+                break
+            
+            frame = cv2.filter2D(frame, -1, sharpening_kernel)
+            if crop_info is not None:
+                frame = crop_img(frame, crop_info)
+
+            delay_count -= 1
+            print(f"'pending' state: {delay_count} frames remaining before capture.")
+
+            if delay_count <= 0:
+                original_folder = 'original'
+                if not os.path.exists(original_folder):
+                    os.makedirs(original_folder)
+                timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+                original_image_path = os.path.join(original_folder, f"{timestamp}.jpg")
+                cv2.imwrite(original_image_path, frame)
+                print(f"Saved original image to {original_image_path}")
+
+                result = inference_request(frame, api_url)
+                label_counts = Counter()
+                objects = []
+                differences = {}
+                if result is not None:
+                    raw_objects = result.get('objects', [])
+                    for obj in raw_objects:
+                        cls = obj.get('class', 'N/A')
+                        score = obj.get('score', 0)
+                        threshold = class_thresholds.get(cls, 0.5)
+                        if score >= threshold:
+                            obj['valid'] = True
+                            label_counts[cls] += 1
+                        else:
+                            obj['valid'] = False
+                        objects.append(obj)
+
+                    if objects:
+                        annotated_image = draw_bounding_boxes(frame.copy(), objects, color_map)
+                        annotated_image = draw_label_counts(annotated_image, label_counts, color_map)
+
+                        for cls, exp_count in expected_counts.items():
+                            act_count = label_counts.get(cls, 0)
+                            diff = act_count - exp_count
+                            if diff != 0:
+                                differences[cls] = diff
+
+                        if differences:
+                            draw_error_info(annotated_image, list(differences.items()))
+                            annotated_image = highlight_extra_objects(annotated_image, objects, differences)
+                    else:
+                        print("No objects detected at all.")
+                        annotated_image = frame.copy()
+                else:
+                    print("Failed to get inference result.")
+                    annotated_image = frame.copy()
+
+                if differences:
+                    yolo_folder = 'Yolo_defects'
+                else:
+                    yolo_folder = 'Yolo'
+
+                if not os.path.exists(yolo_folder):
+                    os.makedirs(yolo_folder)
+                annotated_image_path = os.path.join(yolo_folder, f"{timestamp}_annotated.jpg")
+                cv2.imwrite(annotated_image_path, annotated_image)
+                print(f"Annotated image saved to {annotated_image_path}")
+
+                state = 'freeze'
+                freeze_count = FREEZE_FRAMES
+                ser.write(b"1")
+                print(f"Switching to 'freeze' state for {FREEZE_FRAMES} frames and sent '1' to Arduino.")
+                time.sleep(0.1)
+
+        elif state == 'freeze':
+            freeze_count -= 1
+            print(f"'freeze' state: {freeze_count} frames remaining.")
+            if ser.in_waiting > 0:
+                data = ser.read()
+                if data == b"0":
+                    now = time.time()
+                    if now - last_b0_time > B0_DEBOUNCE_TIME:
+                        last_b0_time = now
+                        state = 'pending'
+                        delay_count = CAPTURE_DELAY_FRAMES
+                        print(f"Received b'0' in freeze state, switching to 'pending' state.")
+                        time.sleep(0.1)
+                        continue
+                    else:
+                        print("b'0' in freeze ignored due to debounce.")
+            
+            if freeze_count <= 0:
+                state = 'normal'
+                print("Freeze ended, switching back to 'normal' state.")
+                time.sleep(0.1)
+
         else:
-            obj['valid'] = False
-        objects.append(obj)
-    
-    annotated_image = frame.copy()
-    annotated_image = draw_bounding_boxes(annotated_image, objects, color_map)
-    annotated_image = draw_label_counts(annotated_image, label_counts, color_map)
+            print("Unexpected state encountered.")
+            break
 
-    for cls, exp_count in expected_counts.items():
-        act_count = label_counts.get(cls, 0)
-        diff = act_count - exp_count
-        if diff != 0:
-            differences[cls] = diff
+        # running이 False가 되면 루프 종료
+    print("Loop ended.")
 
-    if differences:
-        draw_error_info(annotated_image, list(differences.items()))
-        annotated_image = highlight_extra_objects(annotated_image, objects, differences)
+def start_process():
+    global running, loop_thread
+    if running:
+        return "Already running"
+    running = True
+    loop_thread = threading.Thread(target=run_process, daemon=True)
+    loop_thread.start()
+    return "Process started"
 
-    # OpenCV 이미지를 Gradio에 표시하기 위해 RGB 변환
-    annotated_image = cv2.cvtColor(annotated_image, cv2.COLOR_BGR2RGB)
-    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+def stop_process():
+    global running
+    running = False
+    return "Process stopped"
 
-    if differences:
-        message = "Defects found!"
-    else:
-        message = "No defects!"
-
-    return message, annotated_image
-
-# Gradio UI 구성
 with gr.Blocks() as demo:
-    gr.Markdown("# PCB Inspection (YOLO Inference)\n카메라로 이미지를 캡처하고 YOLO로 검출한 결과를 시각화합니다.")
-    with gr.Row():
-        capture_button = gr.Button("Capture and Analyze")
-    with gr.Row():
-        result_message = gr.Textbox(label="Result Message")
-    with gr.Row():
-        annotated_image_output = gr.Image(label="Annotated Image")
+    gr.Markdown("# Conveyor & YOLO Detection Control\n")
+    start_btn = gr.Button("START")
+    stop_btn = gr.Button("STOP")
+    status = gr.Textbox(label="Status")
 
-    capture_button.click(fn=capture_and_infer, 
-                         inputs=[],
-                         outputs=[result_message, annotated_image_output])
+    start_btn.click(start_process, inputs=[], outputs=status)
+    stop_btn.click(stop_process, inputs=[], outputs=status)
 
-# 페이지 실행
-# 아래 코드 실행 시 로컬 주소 및 share=True로 공유 가능한 주소 모두 표시
 demo.launch(share=True)
