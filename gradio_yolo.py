@@ -17,8 +17,8 @@ import threading
 # Parameters
 # ==============================
 CAPTURE_DELAY_FRAMES = 2  # 'data == b"0"' 후 대기 프레임
-FREEZE_FRAMES = 15         # YOLO 결과 표시 프레임 수
-B0_DEBOUNCE_TIME = 0.3     # b"0" 신호 디바운싱 시간 (초)
+FREEZE_FRAMES = 15        # YOLO 결과 표시 프레임 수
+B0_DEBOUNCE_TIME = 0.3    # b"0" 신호 디바운싱 시간 (초)
 
 expected_counts = {
     'BOOTSEL': 1,
@@ -222,32 +222,26 @@ loop_thread = None
 latest_frame = None
 stop_capture = False
 
-# 카메라로부터 계속 프레임을 읽어 latest_frame에 저장하는 스레드
 def capture_frames():
     global latest_frame, stop_capture
     while not stop_capture:
         ret, frame = cam.read()
         if ret:
-            # 샤프닝 적용
             frame = cv2.filter2D(frame, -1, sharpening_kernel)
-            # 크롭 적용
             if crop_info is not None:
                 frame = crop_img(frame, crop_info)
             latest_frame = frame
         else:
             time.sleep(0.01)
 
-# 메인 프로세스 루프
 def run_process():
     global running, state, delay_count, freeze_count, annotated_image, objects, last_b0_time, latest_frame
     while running:
         if latest_frame is None:
-            # 아직 카메라 프레임이 들어오지 않았다면 잠시 대기
             time.sleep(0.1)
             continue
 
         if state == 'normal':
-            # normal 상태에서는 b"0" 신호 대기
             if ser.in_waiting > 0:
                 data = ser.read()
                 print(f"Received data: {data}")
@@ -265,7 +259,6 @@ def run_process():
         elif state == 'pending':
             delay_count -= 1
             print(f"'pending' state: {delay_count} frames remaining before capture.")
-
             if delay_count <= 0:
                 frame = latest_frame.copy()
                 original_folder = 'original'
@@ -351,18 +344,17 @@ def run_process():
                 state = 'normal'
                 print("Freeze ended, switching back to 'normal' state.")
                 time.sleep(0.1)
-
         else:
             print("Unexpected state encountered.")
             break
-
     print("Loop ended.")
 
 def start_process():
-    global running, loop_thread
+    global running, loop_thread, state
     if running:
         return "Already running"
     running = True
+    state = 'normal'  # 시작 시 normal 상태
     loop_thread = threading.Thread(target=run_process, daemon=True)
     loop_thread.start()
     return "Process started"
@@ -373,8 +365,6 @@ def stop_process():
     return "Process stopped"
 
 def get_frame():
-    # 실시간 영상 표시를 위해 latest_frame 반환
-    # latest_frame를 RGB로 변환 후 반환
     global latest_frame
     if latest_frame is not None:
         frame_rgb = cv2.cvtColor(latest_frame, cv2.COLOR_BGR2RGB)
@@ -386,16 +376,18 @@ capture_thread = threading.Thread(target=capture_frames, daemon=True)
 capture_thread.start()
 
 with gr.Blocks() as demo:
-    gr.Markdown("# Conveyor & YOLO Detection Control\n실시간 영상 스트리밍 & START 버튼으로 프로세스 시작")
+    gr.Markdown("# Conveyor & YOLO Detection Control\nSTART 버튼을 누르면 프로세스와 실시간 영상이 시작됩니다.")
     start_btn = gr.Button("START")
     stop_btn = gr.Button("STOP")
     status = gr.Textbox(label="Status")
     live_image = gr.Image(label="Live Feed")
 
-    start_btn.click(start_process, inputs=[], outputs=status)
-    stop_btn.click(stop_process, inputs=[], outputs=status)
+    # Timer를 이용해 주기적으로 get_frame 호출
+    timer = gr.Timer(interval=0.1, fn=get_frame, outputs=live_image, running=False)
 
-    # every=0.1초 마다 get_frame 호출하여 live_image 업데이트
-    demo.load(get_frame, inputs=[], outputs=live_image, every=0.1)
+    # START 버튼 누르면 프로세스 시작 후 타이머 실행
+    start_btn.click(fn=start_process, inputs=[], outputs=status).then(fn=lambda: True, outputs=timer)
+    # STOP 버튼 누르면 프로세스 종료 후 타이머 중지
+    stop_btn.click(fn=stop_process, inputs=[], outputs=status).then(fn=lambda: False, outputs=timer)
 
 demo.launch(share=True)
